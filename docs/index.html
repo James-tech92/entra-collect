@@ -268,7 +268,7 @@
         <h1>Read-only Entra ID &amp; M365 assessment — without Graph PowerShell consent theatre</h1>
         <p class="lead">
           Capture tokens from your portal session, collect Graph + Defender hunting evidence,
-          correlate it into prioritized attack narratives, and ship a self-contained HTML report.
+          correlate it into prioritized attack narratives, and ship HTML + Excel remediation outputs.
         </p>
         <div class="pills">
           <span class="pill"><strong>Authorized</strong> pentests only</span>
@@ -279,7 +279,7 @@
         <div class="grid-3">
           <div class="stat"><div class="k">Collect</div><div class="v">Graph + Hunt</div></div>
           <div class="stat"><div class="k">Analyze</div><div class="v">NARR.* expert</div></div>
-          <div class="stat"><div class="k">Report</div><div class="v">HTML + PDF</div></div>
+          <div class="stat"><div class="k">Report</div><div class="v">HTML · Excel · PDF</div></div>
         </div>
       </header>
 
@@ -293,7 +293,7 @@
           <div class="arrow">→</div>
           <div class="box"><strong>3. Analyze</strong>Expert narratives</div>
           <div class="arrow">→</div>
-          <div class="box"><strong>4. Report</strong><code>00_REPORT.html</code></div>
+          <div class="box"><strong>4. Report</strong><code>00_REPORT.html</code> + Excel</div>
         </div>
         <div class="card">
           <strong>Why portal tokens?</strong>
@@ -327,6 +327,7 @@ node collect.js --auth browser ^
             <tr><td><code>browser</code> + CDP</td><td>Pentest laptop, passkeys, richest hunting session</td></tr>
             <tr><td><code>auto</code></td><td>CLI Graph available; fall back to browser</td></tr>
             <tr><td><code>cli</code></td><td>Strict CLI-only</td></tr>
+            <tr><td><code>device</code></td><td><code>az</code> device-code (often CA-blocked)</td></tr>
             <tr><td><code>app</code></td><td>CI / scheduled — client credentials</td></tr>
           </tbody>
         </table>
@@ -411,15 +412,16 @@ node collect.js --auth browser ^
       </section>
 
       <section id="report">
-        <h2>HTML report</h2>
+        <h2>HTML report &amp; Excel</h2>
         <p>
-          <code>report.js</code> rebuilds a self-contained <code>00_REPORT.html</code> (and re-runs the analyzer).
-          Dark UI, teal accent — dashboard first, inventory second.
+          A successful collect already writes the reports. <code>report.js</code> rebuilds
+          <code>00_REPORT.html</code> and <code>00_Remediation_Plan.xlsx</code> (and re-runs the analyzer).
+          Use the in-page <strong>Export Excel</strong> / <strong>Download PDF</strong> buttons as needed.
         </p>
         <div class="grid-3">
           <div class="stat"><div class="k">Dashboard</div><div class="v" style="font-size:1rem;color:var(--text)">Gauge + Now roadmap</div></div>
           <div class="stat"><div class="k">Expert</div><div class="v" style="font-size:1rem;color:var(--text)">Filterable NARR.*</div></div>
-          <div class="stat"><div class="k">Secure Score</div><div class="v" style="font-size:1rem;color:var(--text)">In-scope + categories</div></div>
+          <div class="stat"><div class="k">Excel</div><div class="v" style="font-size:1rem;color:var(--text)">This Week / Plan</div></div>
         </div>
         <ul>
           <li><span class="badge danger">Now</span> Critical / GA-path narratives</li>
@@ -427,7 +429,8 @@ node collect.js --auth browser ^
           <li><span class="badge">Later</span> Hygiene / Secure Score backlog</li>
         </ul>
         <pre>node report.js output_YYYY-MM-DD_HHMM
-open output_*/00_REPORT.html</pre>
+open output_*/00_REPORT.html
+# also: output_*/00_Remediation_Plan.xlsx</pre>
         <div class="callout">
           Tip: after changing analyzer rules, you only need <code>node report.js &lt;dir&gt;</code> —
           no new collection. Expert posture and Microsoft Secure Score are different scales; the report says so explicitly.
@@ -465,6 +468,8 @@ node report.js</pre>
             <tr><td><a href="ANALYZER.md">ANALYZER.md</a></td><td>NARR.* catalogue</td></tr>
             <tr><td><a href="CHECKS.md">CHECKS.md</a></td><td>Attack-path checklist</td></tr>
             <tr><td><a href="FALSE_POSITIVES.md">FALSE_POSITIVES.md</a></td><td>Known noise</td></tr>
+            <tr><td><a href="HUNTING_KQL.md">HUNTING_KQL.md</a></td><td>Manual KQL companions</td></tr>
+            <tr><td><a href="../SECURITY.md">../SECURITY.md</a></td><td>Token / output handling</td></tr>
             <tr><td><a href="../README.md">../README.md</a></td><td>GitHub landing page</td></tr>
           </tbody>
         </table>

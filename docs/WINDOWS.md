@@ -9,20 +9,40 @@ The collector is **already Node.js + Playwright** — it runs on Windows without
 | **Node.js 18+** (LTS) | Runtime |
 | **Git** (optional) | Clone / updates |
 | `npm install` in `entra-collect` | Dependencies |
-| `npm run setup:browser` | Only for `--browser chromium`; Edge is used by default and needs nothing |
+| **Microsoft Edge** | Recommended CDP path (`login-edge.cmd`) |
+| `npm run setup:browser` | Only for `--browser chromium`; Edge needs nothing extra |
 | Desktop session | Headed browsers need an interactive Windows session (RDP OK) |
+
+## Recommended: CDP + Edge (MFA / passkeys)
+
+Same idea as macOS/Linux `./login-browser.sh`: a **dedicated** Edge profile so `--remote-debugging-port` works on Edge 136+.
 
 ```bat
 cd entra-collect
 npm install
-collect.cmd
+login-edge.cmd
+REM optional: login-edge.cmd 9223 https://security.microsoft.com
+
+REM After sign-in in that Edge window (Authenticator / Windows Hello / QR):
+node collect.js --auth browser --cdp http://127.0.0.1:9222
 ```
 
-Or:
+| Topic | Detail |
+|---|---|
+| Profile | `%LOCALAPPDATA%\entra-collect\profiles\msedge-cdp` — deliberately **outside** the tool folder (live tenant cookies). Override with `ENTRA_COLLECT_PROFILE_DIR`. |
+| MFA | Windows Hello, Authenticator push, or QR |
+| Portal hunting | Attach keeps Security portal session → Advanced Hunting apiproxy |
+| Antivirus | May prompt on Edge flags — allowlist if needed |
 
-```powershell
-cd entra-collect
-npm install
+Without CDP, `node collect.js --auth browser` still works via Playwright-launched Edge (`--browser msedge`).
+
+## Alternative: CLI-first (`--auth auto`)
+
+When Azure CLI / Graph PowerShell already have Graph consent:
+
+```bat
+collect.cmd
+REM or:
 node collect.js --check-permissions
 node collect.js --auth auto --inactive-days 90 --device-stale-months 3
 ```
@@ -35,7 +55,8 @@ node collect.js --auth auto --inactive-days 90 --device-stale-months 3
 |---|---|
 | **`auto` (default)** | Probe CLI Graph tokens first (`az` → Microsoft Graph PowerShell). If a usable token with **Policy.Read** / CA probe OK → **no browser**. Otherwise spawn a portal login. |
 | **`cli`** | CLI only — fail if no token (no browser). |
-| **`browser`** | Force Playwright portal session (previous default behaviour). |
+| **`browser`** | Portal session via Playwright **or** `--cdp` attach (recommended with `login-edge.cmd`). |
+| **`device`** | `az login --use-device-code` (often blocked by CA). |
 | **`app`** | Client credentials — no interactive session, suitable for scheduled tasks. |
 
 ```bat
@@ -45,7 +66,11 @@ node collect.js --auth auto
 REM Strict CLI (after az login or Connect-MgGraph)
 node collect.js --auth cli
 
-REM Always browser (no CLI consent needed)
+REM CDP attach (recommended for MFA / hunting)
+login-edge.cmd
+node collect.js --auth browser --cdp http://127.0.0.1:9222
+
+REM Always Playwright browser (no CDP)
 node collect.js --auth browser
 ```
 
@@ -74,7 +99,7 @@ it has no command that exports a bearer token.
 Note on `az`: its Graph token carries the Azure CLI first-party scope set, which
 does **not** include `ThreatHunting.Read.All`. All Defender hunts (RMM, Shadow AI,
 GenAI, TVM, patch lag) are unavailable in that mode. Use `Connect-MgGraph` with
-the scopes above, an app registration, or the browser path.
+the scopes above, an app registration, or the browser/CDP path.
 
 If the CLI token lacks `Policy.Read.*`, `--auth auto` falls back to the browser so
 CA collection still works. Run `node collect.js --check-permissions` first to see
@@ -92,75 +117,36 @@ exactly which areas your session covers.
 | Execution policy | `collect.cmd` uses `node` only — no PowerShell script signing required |
 | Line endings | Prefer LF in git; Node tolerates CRLF |
 
-## CDP + Edge (passkey / Authenticator) — recommended on Windows
-
-Same pattern as macOS `login-edge.sh`: a **dedicated** Edge profile so `--remote-debugging-port` works on Edge 136+.
-
-```bat
-cd entra-collect
-login-edge.cmd
-REM optional: login-edge.cmd 9223 https://security.microsoft.com
-
-REM After sign-in in that Edge window:
-node collect.js --auth browser --cdp http://127.0.0.1:9222
-```
-
-| Topic | Detail |
-|---|---|
-| Profile | `%LOCALAPPDATA%\entra-collect\profiles\msedge-cdp` — deliberately **outside** the tool folder, since it holds live tenant session cookies. Override with `ENTRA_COLLECT_PROFILE_DIR`. |
-| MFA | Windows Hello, Authenticator push, or QR — depends on device Bluetooth / phone |
-| Portal hunting | Attach keeps Security portal session → Advanced Hunting apiproxy |
-| Antivirus | May prompt on Playwright / Edge flags — allowlist if needed |
-
-Without CDP, `node collect.js --auth browser` still works via Playwright-launched Edge/Chromium (`--browser msedge`).
-
 ## What is *not* required for Windows
 
 - WSL / Docker
-- Graph PowerShell for the **browser** path (portal tokens)
-- Admin rights on the workstation (user install of Node + Playwright is enough)
+- Graph PowerShell for the **browser / CDP** path (portal tokens)
+- Admin rights on the workstation (Node user install / zip is enough)
 
-## Smoke-test CLI probe only
+## After collection
 
-```bat
-node -e "console.log(JSON.stringify(require('./lib/auth-cli').probeCliGraphAuth(),null,2))"
-```
-
-Shows which providers are available and whether a Graph JWT was obtained (token value not printed in summary beyond metadata).
+Open `output_*\00_REPORT.html` and `output_*\00_Remediation_Plan.xlsx`.
+Rebuild with `node report.js output_YYYY-MM-DD_HHMM` if you change analyzer rules.
 
 ## Smoke-test `login-edge.cmd` (CDP)
 
 On a Windows desktop with Edge installed:
 
 ```bat
-cd entra-collect
 login-edge.cmd
 curl -s http://127.0.0.1:9222/json/version
-REM Expect JSON with "Browser" / "webSocketDebuggerUrl"
 node collect.js --auth browser --cdp http://127.0.0.1:9222 --no-wait-enter
 ```
 
 If port 9222 already answers CDP, `login-edge.cmd` exits 0 and prints the collect command (does not start a second Edge). Profile dir: `%LOCALAPPDATA%\entra-collect\profiles\msedge-cdp`.
 
-## Smoke-test the test suite
-
-```bat
-npm test
-```
-
-Covers the retry layer, token expiry/renewal, the artifact manifest and the
-resume cache. No network or tenant access required.
-
-## Architecture reminder
-
-See [ARCHITECTURE.md](ARCHITECTURE.md). Short version:
+## Diagram
 
 ```
---auth auto
-    │
-    ├─ az / MgGraph / mgc  ──token──▶ TokenPool ──▶ runCollection
-    │
-    └─ browser / login-edge.cmd --cdp ──▶ TokenPool + portal hunting ──▶ runCollection
+Windows jump host
+    ├─ login-edge.cmd --cdp ──▶ TokenPool + portal hunting ──▶ runCollection
+    ├─ collect.cmd / --auth auto ──▶ CLI Graph (az / Mg) ──▶ (fallback browser)
+    └─ --auth app ──▶ client credentials ──▶ runCollection
 ```
 
-Collection and reporting are auth-agnostic. Docs index: [FALSE_POSITIVES.md](FALSE_POSITIVES.md), [ANALYZER.md](ANALYZER.md).
+See also: [GUIDE.md](GUIDE.md) · [USAGE.md](USAGE.md) · [SECURITY.md](../SECURITY.md)

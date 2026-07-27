@@ -636,7 +636,8 @@ async function waitForCdp(endpoint, timeoutMs = 90000) {
   throw new Error(
     `CDP not ready at ${endpoint} (${lastErr?.message || "timeout"}).\n` +
       "  Edge 136+ ignores --remote-debugging-port on the DEFAULT profile.\n" +
-      "  Fix: ./login-edge.sh  (uses a dedicated .edge-cdp-profile), wait for « CDP OK », then retry --cdp.\n" +
+      "  Fix: ./login-browser.sh or ./login-edge.sh / login-edge.cmd\n" +
+      "       (dedicated entra-collect profile outside the repo), wait for « CDP OK », then retry --cdp.\n" +
       "  Or in your logged-in Edge: edge://inspect/#remote-debugging → enable Remote debugging."
   );
 }

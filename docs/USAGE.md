@@ -30,6 +30,7 @@ npm run collect:azure   # --portal azure
 | `--out DIR` | tool folder | Where `output_*` directories are created |
 | `--resume DIR` | off | Re-run into an existing output dir, retrying only failed steps |
 | `--check-permissions` | off | Print the scope-coverage matrix and exit without collecting |
+| `--tenant TENANT_ID` | — | Tenant id (required for `--auth app`; optional elsewhere) |
 | `--inactive-days N` | `90` | Enabled accounts with no sign-in since N days |
 | `--device-stale-months N` | `3` | Joined/hybrid devices not seen since N months |
 | `--signin-days A,B,…` | `30,90` | Device-code (and related) sign-in windows |
@@ -38,7 +39,9 @@ npm run collect:azure   # --portal azure
 | `--mfa-wait SEC` | `0` | Auto-continue after N seconds (0 = press Enter) |
 | `--no-wait-enter` | off | Do not wait for Enter (pair with `--mfa-wait`) |
 | `--headless` | off | Headless Chromium (login usually needs headed) |
-| `--browser auto\|brave\|msedge\|chrome\|chromium` | `auto` | `auto` picks the first installed browser for the platform |
+| `--browser auto\|brave\|msedge\|chrome\|chromium` | `auto` | Platform preference order (Brave→Edge→Chrome on macOS; Edge first on Windows) |
+| `--cdp URL` | off | Attach to a browser started via `./login-browser.sh` / `login-edge.cmd` |
+| `--no-passkeys` | off | Disable WebAuthn (password / Authenticator push only) |
 | `--auth auto\|cli\|browser\|device\|app` | `auto` | See below |
 | `--client-id` / `--client-secret` / `--client-cert` / `--client-cert-key` | — | App-only credentials (implies `--auth app`) |
 
@@ -46,8 +49,8 @@ npm run collect:azure   # --portal azure
 
 - **`auto`** — probe local CLI for a Graph token; if Policy.Read / CA probe OK, skip browser; else spawn a browser.
 - **`cli`** — CLI only (fail if no token). Use after `az login` or `Connect-MgGraph -Scopes …`.
-- **`browser`** — always Playwright portal login (classic behaviour).
-- **`device`** — `az login --use-device-code`, for passkeys that live on a phone.
+- **`browser`** — portal session via Playwright **or** `--cdp` attach to `login-browser.sh` / `login-edge.cmd`.
+- **`device`** — `az login --use-device-code`, for passkeys that live on a phone (often CA-blocked).
 - **`app`** — client credentials. No interactive session, so this is the mode for Linux, CI and scheduled runs.
 
 #### What each mode can actually collect
@@ -119,13 +122,18 @@ Without hunting rights, identity still works via **Graph sign-in logs**; RMM/AI/
 
 ## Report
 
-Generated automatically at end of collection, or:
+Generated automatically at the end of a successful collection (HTML + Excel). Rebuild anytime with:
 
 ```bash
-node report.js                     # latest output_* (runs analyze + HTML/PDF)
+node report.js                     # latest output_* (runs analyze + HTML + Excel)
 node report.js output_YYYY-MM-DD_HHMM
 node analyze.js                    # expert narratives only → 00_Expert_Findings.*
 ```
+
+| Artifact | Purpose |
+|---|---|
+| `00_REPORT.html` | Interactive dashboard + findings |
+| `00_Remediation_Plan.xlsx` | Steering workbook (This Week / Remediation Plan / Owner · Status · Due) |
 
 Open `00_REPORT.html` in a browser:
 
@@ -133,7 +141,7 @@ Open `00_REPORT.html` in a browser:
 - **Expert findings** — Critical/High/Medium narratives with evidence + remediation  
 - **Inventory findings** — raw collector rows (includes Info / skips)  
 - **Attack path / CA / Identity / Privileged / Apps / Schema** — detail views  
-- **Download PDF** — CAPAnalyzer-style export: cover + KPI cards + score bar + remediation roadmap + expert finding cards + checklist/CA tables + inventory samples + limitations/footers
+- **Export Excel** / **Download PDF** — remediation workbook and executive brief
 
 ---
 

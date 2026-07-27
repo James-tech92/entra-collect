@@ -93,7 +93,7 @@ Skipped as low signal for a pentest deliverable (ops/compliance noise):
 - Full Defender ASR checkbox matrices  
 - Copilot Studio AI-agent governance suites  
 
-Those can still be reviewed manually; see `../BASELINE_SECURITY_REVIEW.md`.
+Those can still be reviewed manually with your own baseline / CIS / Intune checklists outside this tool.
 
 ---
 

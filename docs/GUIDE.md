@@ -14,14 +14,16 @@ Entra Collect is a **read-only security assessment pipeline** for Microsoft Entr
 ### Pipeline
 
 ```
-┌─────────────┐     ┌──────────────┐     ┌────────────────┐     ┌─────────────┐
-│  Authenticate│ ──▶ │   Collect    │ ──▶ │ Expert analyzer│ ──▶ │ HTML report │
-│ browser/CLI │     │ Graph+Hunt   │     │   NARR.*       │     │ + PDF       │
-└─────────────┘     └──────────────┘     └────────────────┘     └─────────────┘
+┌─────────────┐     ┌──────────────┐     ┌────────────────┐     ┌──────────────────┐
+│  Authenticate│ ──▶ │   Collect    │ ──▶ │ Expert analyzer│ ──▶ │ HTML + Excel     │
+│ browser/CLI │     │ Graph+Hunt   │     │   NARR.*       │     │ (+ PDF in page)  │
+│ /app/device │     │              │     │                │     │                  │
+└─────────────┘     └──────────────┘     └────────────────┘     └──────────────────┘
                            │
                            ▼
                     output_YYYY-MM-DD_HHMM/
                     ├── 00_REPORT.html
+                    ├── 00_Remediation_Plan.xlsx
                     ├── 00_Expert_Findings.*
                     ├── 00_SUMMARY.*
                     ├── 00_MANIFEST.json
@@ -30,9 +32,9 @@ Entra Collect is a **read-only security assessment pipeline** for Microsoft Entr
 
 | Stage | Entry | Output |
 |---|---|---|
-| Collect | `node collect.js` | Artifacts + `00_Findings.csv` + summary |
+| Collect | `node collect.js` | Artifacts + findings + summary + **HTML/Excel report** (auto) |
 | Analyze | `node analyze.js <dir>` | `00_Expert_Findings.csv` / `.json` + posture score |
-| Report | `node report.js <dir>` | `00_REPORT.html` (re-runs analyze) |
+| Report | `node report.js <dir>` | Rebuild `00_REPORT.html` + `00_Remediation_Plan.xlsx` (re-runs analyze) |
 
 ---
 
@@ -229,9 +231,11 @@ False-positive notes: [FALSE_POSITIVES.md](FALSE_POSITIVES.md).
 
 ---
 
-## HTML report
+## HTML report & Excel workbook
 
 ### Generation
+
+A successful collect already writes the report. Rebuild after code/UI changes:
 
 ```bash
 node report.js                     # latest non-empty output_*
@@ -239,10 +243,11 @@ node report.js output_YYYY-MM-DD_HHMM
 ```
 
 `report.js` always re-runs the analyzer so narratives stay in sync with code changes.
+It writes **`00_REPORT.html`** and **`00_Remediation_Plan.xlsx`**.
 
 ### What you see
 
-| Section | Content |
+| Section / file | Content |
 |---|---|
 | **Dashboard** | Posture gauge, severity counts, Now/Next/Later roadmap, incomplete-collection banner |
 | **Expert findings** | Filterable narratives (priority + severity) |
@@ -252,6 +257,7 @@ node report.js output_YYYY-MM-DD_HHMM
 | **Deep dives** | CA, users/MFA, sign-ins, devices, endpoints, mail, privileged, apps |
 | **Secure Score** | In-scope score, category cards, searchable roadmap (Identity / Apps / Data / Device) |
 | **Hunting schema** | Tables probed this run |
+| **`00_Remediation_Plan.xlsx`** | This Week + Remediation Plan (Owner / Status / Due) for steering |
 
 ### Design principles in the UI
 
@@ -259,7 +265,7 @@ node report.js output_YYYY-MM-DD_HHMM
 - **403 ≠ retry** — banner splits permission failures from transient errors (`--resume`).  
 - **No MDE** — endpoint cards show `n/a` / “not assessed”, not green zeros.  
 - **Secure Score** uses in-scope controls; category chips filter the backlog.  
-- Optional **Print / Download PDF** for executive export.
+- **Export Excel** / **Download PDF** for remediation steering and executive export.
 
 ### Offline use
 
@@ -288,7 +294,7 @@ node collect.js --resume output_YYYY-MM-DD_HHMM
 2. `login-browser.sh` / `login-edge.cmd` → sign in.  
 3. `node collect.js --check-permissions …`  
 4. Full collect (1–3 hours typical).  
-5. Open `00_REPORT.html` → read **Expert findings (Now)** first.  
+5. Open `00_REPORT.html` → read **Expert findings (Now)** first; use `00_Remediation_Plan.xlsx` to assign owners.  
 6. Use Limitations for gaps; do not treat skipped endpoint hunts as clean.  
 7. After analyzer code updates: `node report.js <dir>` only — no re-collect needed.
 

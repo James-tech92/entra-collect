@@ -3,10 +3,11 @@
 ## High-level flow
 
 ```
---auth auto|cli|browser|device
+--auth auto|cli|browser|device|app
         │
         ├─ CLI Graph (az → Mg PowerShell → mgc) ──┐
         ├─ az device-code (often CA-blocked)      ├─▶ TokenPool
+        ├─ app client credentials                 │
         └─ browser / CDP attach + portal blade tour ┘
                     │
                     ▼
@@ -16,7 +17,7 @@
                     │
          (browser) attachPortalHunt → Advanced Hunting via portal apiproxy
                     │
-         analyze (NARR.*) → report.js → 00_REPORT.html (+ PDF)
+         analyze (NARR.*) → report.js → 00_REPORT.html + 00_Remediation_Plan.xlsx
 ```
 
 ## Entry points
@@ -24,16 +25,18 @@
 | File | Role |
 |---|---|
 | `collect.js` | CLI / browser / CDP auth, TokenPool, calls `runCollection` |
-| `login-edge.sh` / `login-edge.cmd` | Dedicated Edge profile + remote debugging for CDP attach |
+| `login-browser.sh` | macOS/Linux CDP launcher (Edge/Brave/Chrome) |
+| `login-edge.sh` / `login-edge.cmd` | Edge-only CDP profile + remote debugging |
 | `collect.cmd` | Windows launcher (`--auth auto`) |
 | `analyze.js` | Re-run expert narratives on an `output_*` folder |
-| `report.js` | HTML + PDF report (re-runs analyze) |
-| `lib/collection.js` | Main collection pipeline + `00_SUMMARY.*` |
+| `report.js` | HTML + Excel report (re-runs analyze; PDF via in-page button) |
+| `lib/collection.js` | Main collection pipeline + `00_SUMMARY.*` + auto-report |
 | `lib/hunt.js` | Advanced Hunting: **portal apiproxy → Graph → legacy MTP** |
 | `lib/analyze.js` | Static correlation → `NARR.*` + posture score |
 | `lib/attackpath.js` | Consent / CA coverage / priv hygiene → `40_*` |
 | `lib/endpoints.js` | RMM / AI / patch / TVM / GenAI / file-share / Intune |
 | `lib/intel.js` | Adaptive intel: alerts / Exposure Graph / IdentityLogon (MDE-optional) |
+| `lib/xlsxReport.js` | Remediation workbook builder |
 
 ## Auth modes
 
@@ -127,7 +130,7 @@ On an MDE-light tenant (Identity + CloudApp + Alerts + Exposure Graph, no Device
 
 - `lib/analyze.js` emits expert narratives (`NARR.*`) into `00_Expert_Findings.*` and refreshes the Findings section of `00_SUMMARY.md`.
 - Catalogue: [ANALYZER.md](ANALYZER.md). False positives: [FALSE_POSITIVES.md](FALSE_POSITIVES.md).
-- `report.js` builds CAPAnalyzer-style `00_REPORT.html` (Endpoints includes TVM / KQL checklist).
+- `report.js` builds `00_REPORT.html` and `00_Remediation_Plan.xlsx` (PDF via the in-page Download PDF button). Endpoints tab includes TVM / KQL checklist.
 
 ## Graph client (`lib/graph.js`)
 

@@ -6,9 +6,11 @@ All paths are relative to `output_YYYY-MM-DD_HHMM/`.
 
 | File | Description |
 |---|---|
-| `00_REPORT.html` | Interactive findings viewer + **Download PDF** |
+| `00_REPORT.html` | Interactive findings viewer + **Export Excel** / **Download PDF** |
+| `00_Remediation_Plan.xlsx` | Steering workbook (This Week / Remediation Plan / Owner · Status · Due) |
 | `00_SUMMARY.md` | Human executive summary |
 | `00_SUMMARY.json` | Machine-readable summary + KPIs |
+| `00_MANIFEST.json` | Per-step collection status (ok / failed / empty) |
 | `00_Expert_Findings.csv` / `.json` | Correlated attack narratives (drives posture score) |
 | `00_Findings.csv` | Inventory findings Severity; Area; Detail |
 | `00_REPORT_DATA.json` | Compact report metadata (score, counts) |
@@ -31,7 +33,8 @@ All paths are relative to `output_YYYY-MM-DD_HHMM/`.
 | `02_ca_policies_capanalyzer.json` | CAPAnalyzer upload (IDs + `_resolved` names) |
 | `02_CA_Audit.csv` | Flattened policy audit with resolved names |
 | `02_DeviceCode_CAPs.csv` | Policies targeting auth flows / device code |
-| `02_named_locations.json` / `.csv` | Named locations |
+| `02_named_locations.json` | Named locations (JSON) |
+| `02_NamedLocations.csv` | Named locations (CSV) |
 | `02_named_locations_capanalyzer.json` | Optional CAPAnalyzer locations upload |
 
 ## Privileged access
@@ -62,6 +65,8 @@ All paths are relative to `output_YYYY-MM-DD_HHMM/`.
 | `06_device_registration_policy.json` | Who can join/register + MFA |
 | `09_Devices_Stale_Joined_Nm.csv` | Stale Entra/hybrid joined |
 | `09_Devices_Registered_Only.csv` | Workplace / registered only |
+| `09_Devices_Per_User.csv` | Device counts per user |
+| `09_Devices_Per_User_Multi.csv` | Users with many registered devices |
 
 ## Secure Score, vulns, password, SSPR, logs
 
@@ -70,6 +75,8 @@ All paths are relative to `output_YYYY-MM-DD_HHMM/`.
 | `10_secure_score_*.json` | Raw Secure Score |
 | `10_SecureScore_Controls_ByValue.csv` | Controls sorted by max score |
 | `10_SecureScore_Top15_HighValue.csv` | Top remediation candidates |
+| `10_SecureScore_ByCategory.csv` | In-scope controls by category |
+| `10_SecureScore_Category_Rollup.csv` | Category point rollup |
 | `11_Defender_Exploitable_Vulns.csv` | TVM hunting (if schema allows) |
 | `11_security_alerts_sample.json` | Fallback alerts sample |
 | `12_*` | Directory / password settings |
@@ -113,6 +120,7 @@ All paths are relative to `output_YYYY-MM-DD_HHMM/`.
 |---|---|
 | `30_patch_tuesday_reference.json` | KB / build map used for lag calc |
 | `30_RMM_*.csv` | RMM detections + family prevalence |
+| `30_RMM_Dismissed_Artefacts.csv` | Noise dismissed as collaboration viewers (not desktop agents) |
 | `31_AI_Agents_*.csv` | AI agent process/software signals |
 | `32_*` | OS builds, Win10, behind Patch Tuesday, TVM OS CVEs |
 | `33_Intune_UpdateRings*.csv/json` | WUfB / feature / quality profiles |

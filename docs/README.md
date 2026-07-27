@@ -12,6 +12,7 @@
 | [CHECKS.md](CHECKS.md) | Attack-path checklist IDs |
 | [FALSE_POSITIVES.md](FALSE_POSITIVES.md) | Known noise / dismissal rules |
 | [HUNTING_KQL.md](HUNTING_KQL.md) | Manual KQL companions when hunting tables are missing |
+| [../SECURITY.md](../SECURITY.md) | Token / cookie / output handling |
 
 Start with **GUIDE.md** or **index.html**, then dive into the specialized pages.
 

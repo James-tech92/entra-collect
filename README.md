@@ -14,7 +14,7 @@ Login (browser / CLI / app)
    Expert analyzer (NARR.*)   →  prioritized attack narratives + posture score
         │
         ▼
-   HTML report (+ PDF)        →  00_REPORT.html
+   HTML + Excel (+ PDF)       →  00_REPORT.html · 00_Remediation_Plan.xlsx
 ```
 
 > **Visual docs:** open [`docs/index.html`](docs/index.html) in a browser (or enable GitHub Pages on `/docs`).  
@@ -65,18 +65,26 @@ Or use `collect.cmd` / `--auth auto` (tries Azure CLI / Graph PowerShell first).
 
 ### After collection
 
+A successful collect already writes the report artifacts. Open them directly:
+
+```bash
+open output_*/00_REPORT.html              # macOS
+start output_*\00_REPORT.html             # Windows
+# also: output_*/00_Remediation_Plan.xlsx
+```
+
+Rebuild after analyzer/UI changes (no new collection):
+
 ```bash
 node report.js output_YYYY-MM-DD_HHMM
-open output_*/00_REPORT.html    # macOS
-start output_\*\00_REPORT.html  # Windows
 ```
 
 | Command | Purpose |
 |---|---|
 | `node collect.js --check-permissions` | Preview what this session can collect |
 | `node collect.js --resume output_…` | Retry failed steps only (cache hits for the rest) |
-| `node analyze.js output_…` | Re-run expert narratives |
-| `node report.js output_…` | Rebuild HTML report (+ analyze) |
+| `node analyze.js output_…` | Re-run expert narratives only |
+| `node report.js output_…` | Rebuild HTML + Excel (+ re-analyze) |
 
 ---
 
@@ -132,18 +140,25 @@ Catalogue: [docs/ANALYZER.md](docs/ANALYZER.md) · How it works: [docs/GUIDE.md#
 
 ---
 
-## HTML report
+## HTML report & Excel workbook
 
-`00_REPORT.html` is a self-contained dark UI (CAPAnalyzer-inspired):
+A successful collect (and `node report.js`) write:
+
+| File | Purpose |
+|---|---|
+| `00_REPORT.html` | Interactive dashboard + findings (self-contained) |
+| `00_Remediation_Plan.xlsx` | Steering workbook — **This Week**, Remediation Plan, Owner / Status / Due |
+
+In the HTML:
 
 - Dashboard with posture gauge and **Now / Next / Later** roadmap  
 - Expert findings (filterable) vs raw inventory  
 - Deep dives: CA, users, privileged, apps, endpoints, Secure Score by category  
 - Limitations banner: 403 vs transient failures  
-- Optional **Download PDF**
+- **Export Excel** / **Download PDF** buttons
 
 ```bash
-node report.js                  # latest output_*
+node report.js                  # latest output_* (rebuild)
 node report.js output_YYYY-MM-DD_HHMM
 ```
 
