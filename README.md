@@ -162,7 +162,7 @@ node report.js output_YYYY-MM-DD_HHMM
 | [docs/CHECKS.md](docs/CHECKS.md) | Attack-path checklist IDs |
 | [docs/ANALYZER.md](docs/ANALYZER.md) | `NARR.*` catalogue |
 | [docs/FALSE_POSITIVES.md](docs/FALSE_POSITIVES.md) | Known noise / dismissal rules |
-| [HUNTING_KQL.md](HUNTING_KQL.md) | Manual KQL companions |
+| [docs/HUNTING_KQL.md](docs/HUNTING_KQL.md) | Manual KQL companions |
 | [SECURITY.md](SECURITY.md) | Token / output handling & vulnerability reporting |
 
 ---

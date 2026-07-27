@@ -11,6 +11,7 @@
 | [ANALYZER.md](ANALYZER.md) | Expert `NARR.*` catalogue |
 | [CHECKS.md](CHECKS.md) | Attack-path checklist IDs |
 | [FALSE_POSITIVES.md](FALSE_POSITIVES.md) | Known noise / dismissal rules |
+| [HUNTING_KQL.md](HUNTING_KQL.md) | Manual KQL companions when hunting tables are missing |
 
 Start with **GUIDE.md** or **index.html**, then dive into the specialized pages.
 

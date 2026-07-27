@@ -1,6 +1,6 @@
 # Hunting / logs — adaptive collector + manual KQL
 
-> App docs: see [README.md](README.md) and [docs/](docs/).
+> App docs: see [README.md](../README.md) and the rest of [docs/](./).
 
 The collector **auto-discovers** schema on each run (`lib/schema.js` → `19_Hunting_Schema.json`) and only runs hunts for tables that exist. Re-run `node collect.js` after granting hunting rights to pick up new tables.
 

@@ -150,7 +150,7 @@ Upload `02_ca_policies_capanalyzer.json` into CAPAnalyzer. Graph IDs stay in sta
 | Empty CA / 403 on policies | Token lacks Policy.Read | Complete Entra CA blade tour; use Global Reader |
 | Many `ERROR_hunt_*.json` with 403 | No ThreatHunting scope **and** portal XSRF died mid-run | Keep Edge on Advanced Hunting; collector now auto-refreshes XSRF (~4m) + retries. Check `Attempts:` in ERROR for `portal:` lines |
 | `Portal=ready` but hunts empty | Stale XSRF cached while Edge UI still open | Fixed in `lib/hunt.js` (invalidate + force reload); re-collect |
-| `DeviceInfo` / `AADSignInEventsBeta` missing | No MDE / identity hunting stream | Not Log Analytics by default — see `HUNTING_KQL.md` |
+| `DeviceInfo` / `AADSignInEventsBeta` missing | No MDE / identity hunting stream | Not Log Analytics by default — see [HUNTING_KQL.md](HUNTING_KQL.md) |
 | No device-code rows | Filter unsupported or no events | Check Graph sample / Entra Sign-in logs portal |
 | EXO forwarding n/a | No Exchange admin token | Open `admin.exchange.microsoft.com` during collection |
 | Intune rings empty | No Intune read | Grant Intune Reader and re-run |
