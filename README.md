@@ -1,0 +1,182 @@
+# Entra Collect
+
+**Read-only Entra ID / Microsoft 365 attack-path assessment** for authorized pentests and baseline reviews.
+
+It reuses your interactive **portal login** (Entra, Azure, Defender, Intune, Exchange) so you do **not** need admin consent for *Microsoft Graph Command Line Tools*. Tokens are captured from the browser session and used against Microsoft Graph and Defender Advanced Hunting.
+
+```
+Login (browser / CLI / app)
+        │
+        ▼
+   Collect artifacts          →  CSV / JSON in output_*/
+        │
+        ▼
+   Expert analyzer (NARR.*)   →  prioritized attack narratives + posture score
+        │
+        ▼
+   HTML report (+ PDF)        →  00_REPORT.html
+```
+
+> **Visual docs:** open [`docs/index.html`](docs/index.html) in a browser (or enable GitHub Pages on `/docs`).  
+> **Full guide:** [`docs/GUIDE.md`](docs/GUIDE.md)
+
+---
+
+## Why this tool
+
+| Problem | Approach |
+|---|---|
+| Graph PowerShell / CLI apps blocked by admin consent | Capture tokens from already-consented **first-party portals** |
+| Compliance checklists that ignore real attack paths | Expert narratives focused on GA paths, CA bypass, live SPN activity |
+| “0 findings” when Hunting/API failed | Manifest + Limitations: **unknown ≠ clean** |
+| Long runs (1–3 h) | Retries, token refresh, `--resume` with response cache |
+| Tenants without MDE | Adaptive schema: skip `Device*`, still collect identity / apps / Exposure Graph |
+
+Inspired by Maester / EIDSCA / CISA attack-path thinking — not Secure Score theatre. Microsoft Secure Score is included as a **separate** adoption backlog (in-scope controls only).
+
+---
+
+## Quick start
+
+```bash
+git clone https://github.com/aojald/entra-collect.git
+cd entra-collect
+npm install
+```
+
+### macOS / Linux (recommended: CDP + passkeys)
+
+```bash
+./login-browser.sh
+# Sign in to the target tenant in the Edge/Brave window (QR / MFA)
+
+node collect.js --auth browser --cdp http://127.0.0.1:9222 \
+  --inactive-days 90 --device-stale-months 3 --signin-days 30,90
+```
+
+### Windows
+
+```bat
+login-edge.cmd
+node collect.js --auth browser --cdp http://127.0.0.1:9222
+```
+
+Or use `collect.cmd` / `--auth auto` (tries Azure CLI / Graph PowerShell first).
+
+### After collection
+
+```bash
+node report.js output_YYYY-MM-DD_HHMM
+open output_*/00_REPORT.html    # macOS
+start output_\*\00_REPORT.html  # Windows
+```
+
+| Command | Purpose |
+|---|---|
+| `node collect.js --check-permissions` | Preview what this session can collect |
+| `node collect.js --resume output_…` | Retry failed steps only (cache hits for the rest) |
+| `node analyze.js output_…` | Re-run expert narratives |
+| `node report.js output_…` | Rebuild HTML report (+ analyze) |
+
+---
+
+## Platforms
+
+| OS | Browser attach | Notes |
+|---|---|---|
+| **macOS** | `./login-browser.sh` | Uses `open -a` so Bluetooth hybrid passkey QR works |
+| **Linux** | `./login-browser.sh` | Launches browser binary with CDP |
+| **Windows** | `login-edge.cmd` | Native Node — no WSL required |
+
+Requires **Node.js ≥ 18**. Browser profiles live **outside** the repo (`~/Library/Application Support/entra-collect`, `%LOCALAPPDATA%\entra-collect`, `$XDG_STATE_HOME/entra-collect`) because they hold live tenant cookies.
+
+Auth modes: `auto` · `browser` · `cli` · `app` (client credentials for CI) · `device`.
+
+Details: [docs/GUIDE.md#platforms](docs/GUIDE.md#platforms-windows-macos-linux) · [docs/WINDOWS.md](docs/WINDOWS.md)
+
+---
+
+## What gets collected
+
+Hundreds of artifacts under `output_*/`, grouped roughly as:
+
+- **Identity & CA** — policies, named locations, MFA registration, guests, inactive accounts, risk
+- **Privileged access** — role assignments, hybrid GAs, PIM signals, privileged hygiene
+- **Applications** — dangerous Graph grants, path-to-GA, secrets, SPN sign-ins
+- **Secure Score** — **in-scope** live controls by category (not the inflated full catalog)
+- **Defender hunting** — schema discovery, then RMM / TVM / GenAI / mail / alerts / Exposure Graph when tables exist
+- **M365 collab** — cross-tenant, Teams guest samples, anti-spam checklists, outbound mail digests
+
+Adaptive hunting probes `19_Hunting_Schema.json` and **skips** queries that cannot run (e.g. no `Device*` without MDE).
+
+Catalog: [docs/OUTPUTS.md](docs/OUTPUTS.md) · Overview: [docs/GUIDE.md#what-is-collected](docs/GUIDE.md#what-is-collected)
+
+---
+
+## Expert analyzer
+
+`lib/analyze.js` correlates CSVs into **`NARR.*` narratives** (Now / Next / Later) and a posture score (0–100).
+
+Examples:
+
+- Apps with `RoleManagement.ReadWrite.Directory` → Critical GA-equivalent path  
+- Standing / hybrid Global Administrators  
+- CA exclusion groups that are not role-assignable  
+- Live high-privilege SPN sign-ins vs dormant grants  
+- MFA registration gaps **downgraded** when enforced MFA CA already exists  
+- Failed logons framed as office-egress noise vs external spray  
+
+Re-run anytime: `node analyze.js <output_dir>`.
+
+Catalogue: [docs/ANALYZER.md](docs/ANALYZER.md) · How it works: [docs/GUIDE.md#expert-analyzer](docs/GUIDE.md#expert-analyzer)
+
+---
+
+## HTML report
+
+`00_REPORT.html` is a self-contained dark UI (CAPAnalyzer-inspired):
+
+- Dashboard with posture gauge and **Now / Next / Later** roadmap  
+- Expert findings (filterable) vs raw inventory  
+- Deep dives: CA, users, privileged, apps, endpoints, Secure Score by category  
+- Limitations banner: 403 vs transient failures  
+- Optional **Download PDF**
+
+```bash
+node report.js                  # latest output_*
+node report.js output_YYYY-MM-DD_HHMM
+```
+
+---
+
+## Documentation map
+
+| Doc | Content |
+|---|---|
+| **[docs/index.html](docs/index.html)** | Visual overview (open in browser / GitHub Pages) |
+| **[docs/GUIDE.md](docs/GUIDE.md)** | Full English guide (platforms, collect, analyzer, report) |
+| [docs/USAGE.md](docs/USAGE.md) | CLI flags & troubleshooting |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Modules, CDP, hunting apiproxy |
+| [docs/WINDOWS.md](docs/WINDOWS.md) | Windows-specific setup |
+| [docs/OUTPUTS.md](docs/OUTPUTS.md) | Artifact catalog |
+| [docs/CHECKS.md](docs/CHECKS.md) | Attack-path checklist IDs |
+| [docs/ANALYZER.md](docs/ANALYZER.md) | `NARR.*` catalogue |
+| [docs/FALSE_POSITIVES.md](docs/FALSE_POSITIVES.md) | Known noise / dismissal rules |
+| [HUNTING_KQL.md](HUNTING_KQL.md) | Manual KQL companions |
+| [SECURITY.md](SECURITY.md) | Token / output handling & vulnerability reporting |
+
+---
+
+## Requirements & ethics
+
+- Node.js **≥ 18**
+- Signed-in account with at least **Global Reader** + **Security Reader** (more roles unlock Intune / EXO / hunting)
+- **Authorized** engagement on the target tenant only
+- Read-only Graph / hunting calls — no tenant configuration changes
+- Keep `output_*` and browser profiles **out of git** — they contain customer identity data
+
+---
+
+## License
+
+[MIT](LICENSE) © 2026 Aojald

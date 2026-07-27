@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Entra Collect — Documentation</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #0b1220;
+      --bg2: #111827;
+      --surface: #151f30;
+      --border: #243044;
+      --text: #e8eef7;
+      --muted: #8b9bb4;
+      --accent: #2dd4bf;
+      --accent-dim: rgba(45, 212, 191, 0.14);
+      --danger: #f87171;
+      --warn: #fbbf24;
+      --ok: #4ade80;
+      --font: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+      --display: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      font-family: var(--font);
+      background:
+        radial-gradient(1200px 600px at 10% -10%, rgba(45,212,191,.12), transparent 55%),
+        radial-gradient(900px 500px at 90% 0%, rgba(56,189,248,.08), transparent 50%),
+        var(--bg);
+      color: var(--text);
+      line-height: 1.55;
+    }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .layout {
+      display: grid;
+      grid-template-columns: 240px 1fr;
+      min-height: 100vh;
+    }
+    nav {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      overflow: auto;
+      padding: 1.5rem 1rem 2rem;
+      border-right: 1px solid var(--border);
+      background: rgba(11, 18, 32, 0.92);
+      backdrop-filter: blur(8px);
+    }
+    nav .brand {
+      font-weight: 700;
+      font-size: 1.05rem;
+      letter-spacing: -0.02em;
+      margin-bottom: .25rem;
+    }
+    nav .tag {
+      color: var(--muted);
+      font-size: 12px;
+      margin-bottom: 1.25rem;
+    }
+    nav a.navlink {
+      display: block;
+      color: var(--muted);
+      padding: .4rem .55rem;
+      border-radius: 8px;
+      font-size: 13.5px;
+      margin-bottom: 2px;
+    }
+    nav a.navlink:hover, nav a.navlink.active {
+      background: var(--accent-dim);
+      color: var(--accent);
+      text-decoration: none;
+    }
+    main { padding: 2.5rem 3rem 4rem; max-width: 920px; }
+    .hero h1 {
+      font-size: clamp(1.8rem, 3vw, 2.4rem);
+      font-weight: 700;
+      letter-spacing: -0.03em;
+      margin: 0 0 .75rem;
+      line-height: 1.15;
+    }
+    .hero p.lead {
+      font-size: 1.1rem;
+      color: var(--muted);
+      max-width: 46rem;
+      margin: 0 0 1.5rem;
+    }
+    .pills { display: flex; flex-wrap: wrap; gap: .5rem; margin-bottom: 2rem; }
+    .pill {
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--muted);
+      font-size: 12px;
+      padding: .35rem .7rem;
+      border-radius: 999px;
+    }
+    .pill strong { color: var(--accent); font-weight: 600; }
+    section {
+      margin: 3rem 0;
+      scroll-margin-top: 1.5rem;
+    }
+    h2 {
+      font-size: 1.45rem;
+      margin: 0 0 .75rem;
+      letter-spacing: -0.02em;
+    }
+    h3 {
+      font-size: 1.05rem;
+      margin: 1.5rem 0 .5rem;
+      color: var(--text);
+    }
+    p, li { color: #c5d0e0; }
+    .muted { color: var(--muted); }
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 1.1rem 1.25rem;
+      margin: 1rem 0;
+    }
+    .grid-3 {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: .85rem;
+    }
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: .85rem;
+    }
+    .stat {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1rem;
+    }
+    .stat .k {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      color: var(--muted);
+    }
+    .stat .v {
+      font-size: 1.35rem;
+      font-weight: 700;
+      margin-top: .25rem;
+      color: var(--accent);
+    }
+    .flow {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr auto 1fr auto 1fr;
+      gap: .5rem;
+      align-items: center;
+      margin: 1.25rem 0;
+    }
+    .flow .box {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: .85rem;
+      text-align: center;
+      font-size: 13px;
+    }
+    .flow .box strong { display: block; color: var(--accent); margin-bottom: .2rem; }
+    .flow .arrow { color: var(--muted); font-size: 1.2rem; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13.5px;
+      margin: 1rem 0;
+    }
+    th, td {
+      text-align: left;
+      padding: .65rem .7rem;
+      border-bottom: 1px solid var(--border);
+      vertical-align: top;
+    }
+    th {
+      color: var(--muted);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+    }
+    code, pre {
+      font-family: "IBM Plex Mono", ui-monospace, monospace;
+      font-size: 12.5px;
+    }
+    code {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      padding: .1rem .35rem;
+      border-radius: 5px;
+      color: #a5f3fc;
+    }
+    pre {
+      background: #0a101a;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1rem 1.1rem;
+      overflow: auto;
+      color: #d1e0f0;
+      line-height: 1.45;
+    }
+    .callout {
+      border-left: 3px solid var(--accent);
+      background: var(--accent-dim);
+      padding: .85rem 1rem;
+      border-radius: 0 10px 10px 0;
+      margin: 1rem 0;
+      color: #c8f7ef;
+      font-size: 14px;
+    }
+    .callout.warn { border-color: var(--warn); background: rgba(251,191,36,.1); color: #fde68a; }
+    .badge {
+      display: inline-block;
+      font-size: 11px;
+      font-weight: 600;
+      padding: .15rem .45rem;
+      border-radius: 6px;
+      background: var(--accent-dim);
+      color: var(--accent);
+    }
+    .badge.danger { background: rgba(248,113,113,.15); color: var(--danger); }
+    .badge.warn { background: rgba(251,191,36,.15); color: var(--warn); }
+    footer {
+      margin-top: 4rem;
+      padding-top: 1.5rem;
+      border-top: 1px solid var(--border);
+      color: var(--muted);
+      font-size: 13px;
+    }
+    @media (max-width: 900px) {
+      .layout { grid-template-columns: 1fr; }
+      nav {
+        position: relative;
+        height: auto;
+        border-right: none;
+        border-bottom: 1px solid var(--border);
+      }
+      main { padding: 1.5rem 1.1rem 3rem; }
+      .grid-3, .grid-2, .flow { grid-template-columns: 1fr; }
+      .flow .arrow { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <nav>
+      <div class="brand">Entra Collect</div>
+      <div class="tag">Security assessment docs</div>
+      <a class="navlink" href="#overview">Overview</a>
+      <a class="navlink" href="#pipeline">Pipeline</a>
+      <a class="navlink" href="#platforms">Platforms</a>
+      <a class="navlink" href="#collect">What it collects</a>
+      <a class="navlink" href="#analyzer">Expert analyzer</a>
+      <a class="navlink" href="#report">HTML report</a>
+      <a class="navlink" href="#quickstart">Quick start</a>
+      <a class="navlink" href="#docs">Markdown docs</a>
+    </nav>
+
+    <main>
+      <header class="hero" id="overview">
+        <h1>Read-only Entra ID &amp; M365 assessment — without Graph PowerShell consent theatre</h1>
+        <p class="lead">
+          Capture tokens from your portal session, collect Graph + Defender hunting evidence,
+          correlate it into prioritized attack narratives, and ship a self-contained HTML report.
+        </p>
+        <div class="pills">
+          <span class="pill"><strong>Authorized</strong> pentests only</span>
+          <span class="pill"><strong>Read-only</strong> Graph / hunting</span>
+          <span class="pill"><strong>Windows · macOS · Linux</strong></span>
+          <span class="pill"><strong>Adaptive</strong> MDE schema</span>
+        </div>
+        <div class="grid-3">
+          <div class="stat"><div class="k">Collect</div><div class="v">Graph + Hunt</div></div>
+          <div class="stat"><div class="k">Analyze</div><div class="v">NARR.* expert</div></div>
+          <div class="stat"><div class="k">Report</div><div class="v">HTML + PDF</div></div>
+        </div>
+      </header>
+
+      <section id="pipeline">
+        <h2>How the pipeline works</h2>
+        <p>Three stages, one output folder. Collection can take one to three hours; analyze and report are seconds to a minute.</p>
+        <div class="flow">
+          <div class="box"><strong>1. Authenticate</strong>Browser CDP, CLI, or app</div>
+          <div class="arrow">→</div>
+          <div class="box"><strong>2. Collect</strong>Artifacts + manifest</div>
+          <div class="arrow">→</div>
+          <div class="box"><strong>3. Analyze</strong>Expert narratives</div>
+          <div class="arrow">→</div>
+          <div class="box"><strong>4. Report</strong><code>00_REPORT.html</code></div>
+        </div>
+        <div class="card">
+          <strong>Why portal tokens?</strong>
+          <p style="margin:.5rem 0 0">Many tenants block admin consent for <em>Microsoft Graph Command Line Tools</em>.
+          This tool attaches to Edge/Brave/Chrome (or reuses <code>az</code> / Graph PowerShell) and uses already-consented first-party portal apps.
+          Advanced Hunting prefers the Defender portal apiproxy when Graph hunting scopes are missing.</p>
+        </div>
+      </section>
+
+      <section id="platforms">
+        <h2>Platforms</h2>
+        <div class="grid-2">
+          <div class="card">
+            <h3 style="margin-top:0">macOS / Linux</h3>
+            <pre>./login-browser.sh
+node collect.js --auth browser \
+  --cdp http://127.0.0.1:9222</pre>
+            <p class="muted" style="margin:0;font-size:13px">Dedicated CDP profile. macOS uses <code>open -a</code> so Bluetooth passkey QR works.</p>
+          </div>
+          <div class="card">
+            <h3 style="margin-top:0">Windows</h3>
+            <pre>login-edge.cmd
+node collect.js --auth browser ^
+  --cdp http://127.0.0.1:9222</pre>
+            <p class="muted" style="margin:0;font-size:13px">Native Node — no WSL. Or <code>collect.cmd</code> / <code>--auth auto</code> with Azure CLI.</p>
+          </div>
+        </div>
+        <table>
+          <thead><tr><th>Mode</th><th>Use when</th></tr></thead>
+          <tbody>
+            <tr><td><code>browser</code> + CDP</td><td>Pentest laptop, passkeys, richest hunting session</td></tr>
+            <tr><td><code>auto</code></td><td>CLI Graph available; fall back to browser</td></tr>
+            <tr><td><code>cli</code></td><td>Strict CLI-only</td></tr>
+            <tr><td><code>app</code></td><td>CI / scheduled — client credentials</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="collect">
+        <h2>What it collects</h2>
+        <p>Artifacts land in <code>output_YYYY-MM-DD_HHMM/</code>. Collection is adaptive: Defender tables are probed first; missing <code>Device*</code> means RMM/TVM are <em>not assessed</em>, not clean.</p>
+        <div class="grid-2">
+          <div class="card">
+            <h3 style="margin-top:0">Identity &amp; CA</h3>
+            <ul>
+              <li>Conditional Access + named locations</li>
+              <li>MFA registration, guests, inactive users</li>
+              <li>Risk users / detections</li>
+              <li>Device code, legacy, failed sign-in digests</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3 style="margin-top:0">Privilege &amp; apps</h3>
+            <ul>
+              <li>GA / hybrid / privileged hygiene</li>
+              <li>Path-to-GA Graph permissions</li>
+              <li>Live SPN sign-ins vs dormant grants</li>
+              <li>Secrets, wildcards, consent surface</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3 style="margin-top:0">Defender / M365</h3>
+            <ul>
+              <li>Schema discovery (<code>19_Hunting_Schema</code>)</li>
+              <li>RMM, TVM, GenAI, file-share (when tables exist)</li>
+              <li>Alerts, Exposure Graph, IdentityInfo</li>
+              <li>Mail / Teams / cross-tenant samples</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3 style="margin-top:0">Secure Score</h3>
+            <ul>
+              <li>Live in-scope controls by category</li>
+              <li>Not the inflated 400+ profile catalog</li>
+              <li>Separate from expert posture score</li>
+            </ul>
+          </div>
+        </div>
+        <div class="callout warn">
+          Failed Graph steps (403) are recorded in the manifest and shown under <strong>Limitations</strong>.
+          A missing SharePoint settings call is not a clean bill of health.
+        </div>
+      </section>
+
+      <section id="analyzer">
+        <h2>Expert analyzer</h2>
+        <p>
+          <code>lib/analyze.js</code> is a <strong>deterministic expert system</strong> — correlation rules over CSVs, not a live LLM.
+          It emits <code>NARR.*</code> narratives with severity, priority (Now / Next / Later), evidence, and remediation, plus a posture score 0–100.
+        </p>
+        <table>
+          <thead><tr><th>Idea</th><th>Example</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>Config ∩ activity</td>
+              <td>Dangerous Graph grant <em>and</em> active SPN sign-ins → harden now; never-seen grant → delete candidate</td>
+            </tr>
+            <tr>
+              <td>Context-aware severity</td>
+              <td>Large MFA registration inventory becomes Medium when enforced MFA CA already exists</td>
+            </tr>
+            <tr>
+              <td>Office noise vs spray</td>
+              <td>Failed logon bursts often map to site egress / shared mailboxes — confirm IPs with IT</td>
+            </tr>
+            <tr>
+              <td>First-party filter</td>
+              <td>Microsoft 365 Backup Directory write is not framed as third-party vendor sprawl</td>
+            </tr>
+          </tbody>
+        </table>
+        <pre>node analyze.js output_YYYY-MM-DD_HHMM
+# writes 00_Expert_Findings.csv / .json</pre>
+        <p class="muted">Full catalogue: <a href="ANALYZER.md">ANALYZER.md</a> · Guide: <a href="GUIDE.md#expert-analyzer">GUIDE.md</a></p>
+      </section>
+
+      <section id="report">
+        <h2>HTML report</h2>
+        <p>
+          <code>report.js</code> rebuilds a self-contained <code>00_REPORT.html</code> (and re-runs the analyzer).
+          Dark UI, teal accent — dashboard first, inventory second.
+        </p>
+        <div class="grid-3">
+          <div class="stat"><div class="k">Dashboard</div><div class="v" style="font-size:1rem;color:var(--text)">Gauge + Now roadmap</div></div>
+          <div class="stat"><div class="k">Expert</div><div class="v" style="font-size:1rem;color:var(--text)">Filterable NARR.*</div></div>
+          <div class="stat"><div class="k">Secure Score</div><div class="v" style="font-size:1rem;color:var(--text)">In-scope + categories</div></div>
+        </div>
+        <ul>
+          <li><span class="badge danger">Now</span> Critical / GA-path narratives</li>
+          <li><span class="badge warn">Next</span> Hardening gaps (CA, MFA exclusions, …)</li>
+          <li><span class="badge">Later</span> Hygiene / Secure Score backlog</li>
+        </ul>
+        <pre>node report.js output_YYYY-MM-DD_HHMM
+open output_*/00_REPORT.html</pre>
+        <div class="callout">
+          Tip: after changing analyzer rules, you only need <code>node report.js &lt;dir&gt;</code> —
+          no new collection. Expert posture and Microsoft Secure Score are different scales; the report says so explicitly.
+        </div>
+      </section>
+
+      <section id="quickstart">
+        <h2>Quick start</h2>
+        <pre>npm install
+
+# Preview what this session can collect
+node collect.js --check-permissions --auth browser --cdp http://127.0.0.1:9222
+
+# Full run
+node collect.js --auth browser --cdp http://127.0.0.1:9222 \
+  --inactive-days 90 --device-stale-months 3 --signin-days 30,90
+
+# Resume failed steps only
+node collect.js --resume output_YYYY-MM-DD_HHMM
+
+# Report
+node report.js</pre>
+      </section>
+
+      <section id="docs">
+        <h2>Markdown documentation</h2>
+        <table>
+          <thead><tr><th>File</th><th>Content</th></tr></thead>
+          <tbody>
+            <tr><td><a href="GUIDE.md">GUIDE.md</a></td><td>Full English guide (this site’s source of truth in prose)</td></tr>
+            <tr><td><a href="USAGE.md">USAGE.md</a></td><td>CLI flags &amp; troubleshooting</td></tr>
+            <tr><td><a href="ARCHITECTURE.md">ARCHITECTURE.md</a></td><td>Modules, CDP, hunting apiproxy</td></tr>
+            <tr><td><a href="WINDOWS.md">WINDOWS.md</a></td><td>Windows setup</td></tr>
+            <tr><td><a href="OUTPUTS.md">OUTPUTS.md</a></td><td>Artifact catalog</td></tr>
+            <tr><td><a href="ANALYZER.md">ANALYZER.md</a></td><td>NARR.* catalogue</td></tr>
+            <tr><td><a href="CHECKS.md">CHECKS.md</a></td><td>Attack-path checklist</td></tr>
+            <tr><td><a href="FALSE_POSITIVES.md">FALSE_POSITIVES.md</a></td><td>Known noise</td></tr>
+            <tr><td><a href="../README.md">../README.md</a></td><td>GitHub landing page</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <footer>
+        Entra Collect — for authorized security assessments only. Read-only collection; no tenant configuration changes.
+      </footer>
+    </main>
+  </div>
+  <script>
+    const links = [...document.querySelectorAll("nav a.navlink")];
+    const sections = links.map((a) => document.querySelector(a.getAttribute("href"))).filter(Boolean);
+    const obs = new IntersectionObserver(
+      (entries) => {
+        for (const e of entries) {
+          if (!e.isIntersecting) continue;
+          const id = "#" + e.target.id;
+          links.forEach((a) => a.classList.toggle("active", a.getAttribute("href") === id));
+        }
+      },
+      { rootMargin: "-20% 0px -70% 0px", threshold: 0 }
+    );
+    sections.forEach((s) => obs.observe(s));
+  </script>
+</body>
+</html>

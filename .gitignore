@@ -1,0 +1,32 @@
+# Collection results — contain customer data, never commit
+output_*/
+*.local.json
+
+# Browser profiles — contain live portal session cookies for the target tenant.
+# Newer runs keep these outside the project; these patterns cover older layouts.
+.edge-cdp-profile/
+.browser-profile-*/
+.*-cdp-profile/
+profiles/
+
+# Credentials
+*.pem
+*.pfx
+*.key
+.env
+.env.*
+
+node_modules/
+
+# Generated / local test artifacts
+render-check.png
+*.xlsx
+!docs/**
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
+*.log

@@ -1,0 +1,67 @@
+{
+  "name": "entra-collect",
+  "version": "1.1.0",
+  "private": false,
+  "description": "Authorized Entra ID / M365 attack-path assessment via portal browser session (no Graph PowerShell consent). HTML/PDF/Excel remediation report included.",
+  "license": "MIT",
+  "author": "Aojald",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/aojald/entra-collect.git"
+  },
+  "bugs": {
+    "url": "https://github.com/aojald/entra-collect/issues"
+  },
+  "homepage": "https://github.com/aojald/entra-collect#readme",
+  "keywords": [
+    "entra-id",
+    "azure-ad",
+    "microsoft-365",
+    "security-assessment",
+    "pentest",
+    "conditional-access",
+    "attack-path"
+  ],
+  "main": "collect.js",
+  "bin": {
+    "entra-collect": "collect.js"
+  },
+  "files": [
+    "collect.js",
+    "analyze.js",
+    "report.js",
+    "collect.cmd",
+    "login-browser.sh",
+    "login-edge.sh",
+    "login-edge.cmd",
+    "lib/",
+    "docs/",
+    "test/",
+    "HUNTING_KQL.md",
+    "README.md",
+    "LICENSE",
+    "SECURITY.md"
+  ],
+  "scripts": {
+    "collect": "node collect.js",
+    "collect:azure": "node collect.js --portal azure",
+    "analyze": "node analyze.js",
+    "report": "node report.js",
+    "check-permissions": "node collect.js --check-permissions",
+    "setup:browser": "playwright install chromium",
+    "test": "node --test \"test/*.test.js\"",
+    "test:render": "node test/render-check.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "exceljs": "^4.4.0",
+    "jspdf": "^4.2.1",
+    "playwright": "^1.62.0"
+  },
+  "overrides": {
+    "brace-expansion": "5.0.8",
+    "uuid": "^11.1.1"
+  }
+}
