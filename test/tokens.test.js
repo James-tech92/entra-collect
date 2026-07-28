@@ -68,3 +68,35 @@ test("refresh attempts are throttled so 401 bursts do not stampede", async () =>
   await pool.refresh();
   assert.equal(calls, 1, "second call within the interval is suppressed");
 });
+
+test("pool locks to first token tid and rejects foreign-tenant tokens", () => {
+  const pool = new TokenPool();
+  const a = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+  const b = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
+  assert.ok(pool.add(graphToken({ tid: a, scp: "Directory.Read.All" })));
+  assert.equal(pool.tenantId(), a);
+  assert.equal(pool.add(graphToken({ tid: b, appid: "app-2", scp: "Directory.Read.All" })), null);
+  assert.equal(pool.list().length, 1);
+  assert.equal(pool.rejectedMixed.length, 1);
+  assert.equal(pool.rejectedMixed[0].tid, b);
+  const check = pool.assertSingleTenant();
+  assert.equal(check.ok, true);
+  assert.equal(check.tid, a);
+});
+
+test("--tenant lock rejects a first token from another tenant", () => {
+  const pool = new TokenPool();
+  const pinned = "cccccccc-cccc-cccc-cccc-cccccccccccc";
+  const other = "dddddddd-dddd-dddd-dddd-dddddddddddd";
+  pool.lockTenant(pinned, "--tenant");
+  assert.equal(pool.add(graphToken({ tid: other })), null);
+  assert.equal(pool.list().length, 0);
+  assert.ok(pool.add(graphToken({ tid: pinned })));
+  assert.equal(pool.list().length, 1);
+});
+
+test("lockTenant refuses to switch tenants", () => {
+  const pool = new TokenPool();
+  pool.lockTenant("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", "first");
+  assert.throws(() => pool.lockTenant("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb", "second"));
+});

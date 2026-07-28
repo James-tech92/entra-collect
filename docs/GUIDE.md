@@ -110,7 +110,7 @@ Collection is **schema-aware** and **permission-aware**. Missing roles produce `
 | Area | Examples |
 |---|---|
 | Tenant / auth | Organization, security defaults, auth methods, MFA registration campaign, auth strengths |
-| CA | Full policies (CAPAnalyzer JSON), named locations, audit CSV, device-code CAPs |
+| CA | Full policies (CAPAnalyzer JSON), named locations, audit CSV, device-code CAPs, offline What-If pack (principals / memberships / raw signIns) |
 | Users | No MFA, passkeys, inactive accounts, guests, SSPR sample |
 | Devices | Stale joined, registered-only, per-user inventory, device registration policy |
 | Risk | Risky users, risk detections |

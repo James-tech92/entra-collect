@@ -27,6 +27,7 @@ const {
   TokenPool,
   hasPolicyRead,
   describeToken,
+  normalizeTid,
 } = require("./lib/tokens");
 const {
   enrichPoolFromCli,
@@ -68,13 +69,19 @@ App-only (no interactive session — CI / scheduled):
 
 Common:
   --portal entra|azure
-  --tenant TENANT_ID
+  --tenant TENANT_ID    pin collection to this tenant GUID (abort if tokens/org differ)
   --out DIR             output root (default: this folder)
   --resume DIR          retry failed steps in an existing output_* folder
   --check-permissions   show scopes present vs required, then exit
   --inactive-days N     default 90
   --device-stale-months N  default 3
   --signin-days 30,90
+  --no-capanalyzer-offline
+                        skip CapAnalyzer What-If extras (principals / memberships / raw signIns)
+  --capanalyzer-memberships N
+                        optional cap on transitiveMemberOf users (default: no cap / all CA+priv users)
+  --capanalyzer-signin-pages N
+                        max Graph pages for raw signIns sample (default 3, ×200)
   --rmm-legit-threshold 0.7
   --timeout SEC         browser login timeout (default 900)
   --mfa-wait SEC        auto-continue after MFA without pressing Enter
@@ -104,6 +111,15 @@ const signInDays = signInDaysRaw
   .split(",")
   .map((x) => Number(x.trim()))
   .filter((n) => n > 0);
+const capAnalyzerOffline = !args.includes("--no-capanalyzer-offline");
+const capAnalyzerMembershipsRaw = argValue("--capanalyzer-memberships", "");
+const capAnalyzerMaxMemberships =
+  capAnalyzerMembershipsRaw === "" ||
+  capAnalyzerMembershipsRaw.toLowerCase() === "all" ||
+  capAnalyzerMembershipsRaw === "0"
+    ? null
+    : Number(capAnalyzerMembershipsRaw);
+const capAnalyzerSignInPages = Number(argValue("--capanalyzer-signin-pages", "3"));
 const rmmLegitThreshold = Number(argValue("--rmm-legit-threshold", "0.7"));
 const waitEnter = !args.includes("--no-wait-enter") && mfaWaitSec <= 0;
 const headed = !args.includes("--headless");
@@ -477,6 +493,7 @@ async function captureTokens(page, pool, timeoutMs) {
 async function writeTokenInfo(pool, authMeta) {
   const best = pool.bestPolicy() || pool.best();
   if (!best) return;
+  const tenant = pool.tenantReport();
   fs.writeFileSync(
     path.join(outDir, "00_token_info.json"),
     JSON.stringify(
@@ -490,6 +507,11 @@ async function writeTokenInfo(pool, authMeta) {
           best.payload.unique_name ||
           best.payload.preferred_username,
         tid: best.payload.tid,
+        lockedTid: tenant.lockedTid,
+        lockedVia: tenant.lockedVia,
+        pooledTids: tenant.pooledTids,
+        rejectedMixedCount: tenant.rejectedMixedCount,
+        rejectedMixedSample: tenant.rejectedMixedSample,
         scp: best.payload.scp,
         roles: best.payload.roles,
         wids: best.payload.wids,
@@ -499,12 +521,13 @@ async function writeTokenInfo(pool, authMeta) {
         poolSize: pool.list().length,
         allTokens: pool.list().map((t) => ({
           score: t.score,
+          tid: t.payload.tid || null,
           policyRead: hasPolicyRead(t.payload),
           scp: t.payload.scp,
           appid: t.payload.appid || t.payload.azp,
           source: t.source || null,
         })),
-        note: "Raw tokens not saved.",
+        note: "Raw tokens not saved. Mixed-tenant tokens are rejected at capture time.",
       },
       null,
       2
@@ -512,6 +535,77 @@ async function writeTokenInfo(pool, authMeta) {
     "utf8"
   );
   console.log("  ✓ 00_token_info.json");
+}
+
+/**
+ * Ensure every pooled token (and live /organization) belongs to one tenant.
+ * Aborts the process on mismatch so tokens from different tenants never mix.
+ */
+async function assertTenantGuard(pool, { expectedTid = null } = {}) {
+  if (expectedTid) {
+    try {
+      pool.lockTenant(expectedTid, "--tenant");
+    } catch (e) {
+      console.error(`\n❌ ${e.message}\n`);
+      process.exit(1);
+    }
+  }
+
+  const check = pool.assertSingleTenant();
+  if (!check.ok) {
+    console.error(`\n❌ Tenant guard: ${check.error}`);
+    if (pool.rejectedMixed.length) {
+      console.error(
+        `   Also rejected ${pool.rejectedMixed.length} token(s) from other tenant(s) during capture.`
+      );
+    }
+    console.error(
+      "\n   Fix: use one browser profile / one az account for the target tenant," +
+        " close other Entra tabs, pass --tenant <guid>, then re-run.\n"
+    );
+    process.exit(1);
+  }
+
+  // Live Graph check — org id must match JWT tid
+  const g = createGraph(pool);
+  let orgId = null;
+  let orgName = null;
+  try {
+    const data = await g.get(
+      `${g.GRAPH}/organization?$select=id,displayName`
+    );
+    const org = Array.isArray(data.value) ? data.value[0] : data;
+    orgId = normalizeTid(org && org.id);
+    orgName = (org && org.displayName) || null;
+  } catch (e) {
+    console.error(
+      `\n❌ Tenant guard: could not read /organization to verify tenant (${String(e.message || e).slice(0, 160)}).\n`
+    );
+    process.exit(1);
+  }
+
+  if (!orgId) {
+    console.error("\n❌ Tenant guard: /organization returned no id.\n");
+    process.exit(1);
+  }
+
+  if (orgId !== check.tid) {
+    console.error(
+      `\n❌ Tenant guard: Graph organization id (${orgId}` +
+        `${orgName ? ` — ${orgName}` : ""}) does not match token tid (${check.tid}).`
+    );
+    console.error(
+      "   You are likely signed into a different tenant than the tokens suggest. Aborting.\n"
+    );
+    process.exit(1);
+  }
+
+  console.log(
+    `  ✓ tenant guard OK — ${check.tid}` +
+      `${orgName ? ` (${orgName})` : ""}` +
+      `${pool.rejectedMixed.length ? ` · dropped ${pool.rejectedMixed.length} foreign-tenant token(s)` : ""}`
+  );
+  return { tid: check.tid, displayName: orgName };
 }
 
 /**
@@ -901,6 +995,16 @@ async function main() {
   let portalPage = null;
   const authMeta = { cli: null, browserUsed: false, reason: null };
 
+  // Pin early when --tenant is set so foreign browser/CLI tokens never enter the pool.
+  if (tenantId) {
+    try {
+      pool.lockTenant(tenantId, "--tenant");
+    } catch (e) {
+      console.error(`\n❌ ${e.message}\n`);
+      process.exit(1);
+    }
+  }
+
   // ── 0) App-only (client credentials) — no interactive session needed
   if (authMode === "app") {
     const res = await appOnlyToken({
@@ -1071,6 +1175,9 @@ async function main() {
     process.exit(1);
   }
 
+  const tenantGuard = await assertTenantGuard(pool, { expectedTid: tenantId });
+  authMeta.tenantGuard = tenantGuard;
+
   const coverage = printPermissionMatrix(
     pool.list().map((t) => t.payload),
     { hasPortalSession: !!portalPage }
@@ -1091,6 +1198,9 @@ async function main() {
     deviceStaleMonths,
     signInDays,
     rmmLegitThreshold,
+    capAnalyzerOffline,
+    capAnalyzerMaxMemberships,
+    capAnalyzerSignInPages,
     portalPage,
     resume: !!resumeDir,
   });

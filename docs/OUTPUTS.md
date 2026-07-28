@@ -31,6 +31,8 @@ All paths are relative to `output_YYYY-MM-DD_HHMM/`.
 |---|---|
 | `02_ca_policies_raw.json` | Graph policies (IDs) |
 | `02_ca_policies_capanalyzer.json` | CAPAnalyzer upload (IDs + `_resolved` names) |
+| `02_directory_principals_capanalyzer.json` | Users/groups/apps/roles referenced by CA (offline What-If) |
+| `02_user_memberships_capanalyzer.json` | Bounded `transitiveMemberOf` for CA + privileged users |
 | `02_CA_Audit.csv` | Flattened policy audit with resolved names |
 | `02_DeviceCode_CAPs.csv` | Policies targeting auth flows / device code |
 | `02_named_locations.json` | Named locations (JSON) |
@@ -104,6 +106,7 @@ All paths are relative to `output_YYYY-MM-DD_HHMM/`.
 | File | Description |
 |---|---|
 | `20_DeviceCode_SignIns_*.csv` | Device code events |
+| `20_signIns_raw_capanalyzer.json` | Bounded raw Graph signIns for CapAnalyzer Sign-in Replay |
 | `20_DeviceCode_Users_*.csv` | Rollup by user |
 | `20_DeviceCode_Blocked_*.csv` | Failed device-code (CA effectiveness) |
 | `21_LegacyAuth_Success_*.csv` | Legacy client successes |

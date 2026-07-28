@@ -1,5 +1,6 @@
 # Collection results — contain customer data, never commit
 output_*/
+**/output_*/
 *.local.json
 
 # Browser profiles — contain live portal session cookies for the target tenant.
@@ -25,7 +26,9 @@ render-check.png
 
 # OS / editor noise
 .DS_Store
+**/.DS_Store
 Thumbs.db
+**/Thumbs.db
 *.swp
 .idea/
 .vscode/

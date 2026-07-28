@@ -149,6 +149,18 @@ Open `00_REPORT.html` in a browser:
 
 Upload `02_ca_policies_capanalyzer.json` into CAPAnalyzer. Graph IDs stay in standard fields; human names live under `_resolved` / `resolutions` (ignored by CAPAnalyzer’s normalizer).
 
+By default the collector also writes an **offline What-If pack**:
+
+| File | Purpose |
+|---|---|
+| `02_directory_principals_capanalyzer.json` | Users/groups/apps/roles **referenced by Conditional Access** (plus resolver cache) — not the full tenant directory |
+| `02_user_memberships_capanalyzer.json` | `transitiveMemberOf` for **all** CA-referenced + privileged users (optional cap via `--capanalyzer-memberships N`). Role IDs are stored as **role template** IDs for CapAnalyzer What-If. |
+| `20_signIns_raw_capanalyzer.json` | Raw Graph signIns sample (≤ ~600 interactive events) for Sign-in Replay |
+
+Skip with `--no-capanalyzer-offline`. Bound membership count with `--capanalyzer-memberships N` (default: no cap). Bound raw sign-in pages with `--capanalyzer-signin-pages N` (default: 3).
+
+> Upload the CapAnalyzer JSON files together in CAPAnalyzer (policies + principals + memberships; optional raw signIns) for offline What-If.
+
 ---
 
 ## Troubleshooting
