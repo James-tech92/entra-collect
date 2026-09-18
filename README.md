@@ -85,6 +85,7 @@ node report.js output_YYYY-MM-DD_HHMM
 | `node collect.js --resume output_…` | Retry failed steps only (cache hits for the rest) |
 | `node analyze.js output_…` | Re-run expert narratives only |
 | `node report.js output_…` | Rebuild HTML + Excel (+ re-analyze) |
+| `node compare.js before_… after_…` | Score + findings delta between two runs → `00_Comparison_*.html` |
 
 ---
 
@@ -98,7 +99,9 @@ node report.js output_YYYY-MM-DD_HHMM
 
 Requires **Node.js ≥ 18**. Browser profiles live **outside** the repo (`~/Library/Application Support/entra-collect`, `%LOCALAPPDATA%\entra-collect`, `$XDG_STATE_HOME/entra-collect`) because they hold live tenant cookies.
 
-Auth modes: `auto` · `browser` · `cli` · `app` (client credentials for CI) · `device`.
+Auth modes: `auto` · `browser` · `cli` · `msal` (no app registration — see below) · `app` (client credentials for CI) · `device`.
+
+`--auth msal` signs in via MSAL Node against Azure CLI's own first-party client ID — no admin consent flow to set up, same trust model as `az login`, just without needing `az` installed. Interactive loopback only (not device code, which many hardened tenants block via Conditional Access). Add `--auth-cache` to persist an encrypted token cache and skip re-authenticating on the next run. Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) ("MSAL" section under Auth modes).
 
 Details: [docs/GUIDE.md#platforms](docs/GUIDE.md#platforms-windows-macos-linux) · [docs/WINDOWS.md](docs/WINDOWS.md)
 

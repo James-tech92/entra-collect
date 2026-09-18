@@ -3,10 +3,11 @@
 ## High-level flow
 
 ```
---auth auto|cli|browser|device|app
+--auth auto|cli|msal|browser|device|app
         │
         ├─ CLI Graph (az → Mg PowerShell → mgc) ──┐
-        ├─ az device-code (often CA-blocked)      ├─▶ TokenPool
+        ├─ MSAL Node interactive (loopback+PKCE)  ├─▶ TokenPool
+        ├─ az device-code (often CA-blocked)      │
         ├─ app client credentials                 │
         └─ browser / CDP attach + portal blade tour ┘
                     │
@@ -18,6 +19,8 @@
          (browser) attachPortalHunt → Advanced Hunting via portal apiproxy
                     │
          analyze (NARR.*) → report.js → 00_REPORT.html + 00_Remediation_Plan.xlsx
+                    │
+         compare.js (two output_* dirs) → 00_Comparison_*.html
 ```
 
 ## Entry points
@@ -30,7 +33,10 @@
 | `collect.cmd` | Windows launcher (`--auth auto`) |
 | `analyze.js` | Re-run expert narratives on an `output_*` folder |
 | `report.js` | HTML + Excel report (re-runs analyze; PDF via in-page button) |
+| `compare.js` | Score + findings delta between two `output_*` runs → `00_Comparison_*.html` |
 | `lib/collection.js` | Main collection pipeline + `00_SUMMARY.*` + auto-report |
+| `lib/msal-auth.js` | MSAL Node auth — Azure CLI's own public client, no app registration |
+| `lib/profile.js` | Shared profile/cache directory resolution (browser profiles, MSAL cache) |
 | `lib/hunt.js` | Advanced Hunting: **portal apiproxy → Graph → legacy MTP** |
 | `lib/analyze.js` | Static correlation → `NARR.*` + posture score |
 | `lib/attackpath.js` | Consent / CA coverage / priv hygiene → `40_*` |
@@ -42,8 +48,9 @@
 
 | Mode | Behavior |
 |---|---|
-| `auto` (default) | CLI Graph first; if Policy.Read / CA probe OK → skip browser; else browser |
+| `auto` (default) | CLI Graph → MSAL interactive → browser, stopping as soon as Policy.Read / CA probe is OK |
 | `cli` | CLI only (`az` or `Connect-MgGraph`) |
+| `msal` | MSAL Node interactive (loopback + PKCE), no app registration — see below |
 | `browser` | Playwright portal (or `--cdp` attach) |
 | `device` | `az login --use-device-code` (often blocked by CA) |
 | `app` | Client credentials (secret or certificate) — no interactive session |
@@ -55,6 +62,44 @@ cmdlet that returns one. `mgc` is detected but unusable as a token source.
 `--check-permissions` prints, per collection area, which granted scope satisfies
 it and what will be missing — including the areas that only work while a browser
 portal session stays open.
+
+### MSAL (`--auth msal`, or `auto` falling back to it)
+
+`lib/msal-auth.js` authenticates with **Azure CLI's own first-party public
+client ID** (`04b07795-8ddb-461a-bbee-02f9e1bf7b46`) — a FOCI (Family of
+Client IDs) member, already consented in most tenants because `az login` /
+`Connect-MgGraph` already run against it. No custom app registration is
+created or required. Scopes are requested as `https://graph.microsoft.com/.default`,
+which returns whatever is already granted to this app in the tenant and never
+triggers a new consent prompt the operator can't grant themselves.
+
+The only flow implemented is `acquireTokenInteractive` — an authorization
+code + PKCE exchange via a loopback redirect (RFC 8252), opening the
+operator's own default browser. **Device code is deliberately not used
+here**: Conditional Access has a dedicated grant control ("Block
+authentication flows" → device code) that many hardened tenants enable, and
+loopback interactive is treated as ordinary modern auth instead. `--auth
+device` (az) remains available for tenants that genuinely need device code.
+
+In `auto`, MSAL is tried after CLI probing and before the full Playwright
+portal tour — it needs no browser automation, just a system browser popup,
+so `auto` only launches the heavy blade-tour flow when it truly has to
+(Defender/MTP tokens the portal alone can mint).
+
+Flags:
+
+| Flag | Effect |
+|---|---|
+| `--auth-cache` | Persist the MSAL token cache (opt-in; default is memory-only, gone at process exit) |
+| `--msal-account UPN` | Skip the account picker, use this cached account non-interactively |
+| `--msal-logout` | Wipe the persisted cache for this profile, then exit |
+
+With `--auth-cache`, cached accounts are listed and the operator picks one
+or adds a new one on every run — even with a single cached account, so
+switching tenants never requires editing flags. The cache itself is
+AES-256-GCM encrypted with a key stored alongside it under the same profile
+directory as browser CDP profiles (`lib/profile.js`) — local encryption at
+rest, not an OS credential vault; see [SECURITY.md](../SECURITY.md).
 
 ### Browser / CDP (macOS, Linux, Windows)
 
@@ -175,9 +220,26 @@ of failing.
 
 `npm test` (node:test, no network) covers the retry classifier and backoff,
 token expiry/renewal/throttling, manifest status semantics, the resume cache,
-and CSV round-tripping of multi-line/quoted fields.
+CSV round-tripping of multi-line/quoted fields, the MSAL encrypted cache
+plugin, and the `compare.js` run-diffing logic.
 
-`npm run test:render -- <output_dir>` loads `00_REPORT.html` in a real browser
-and asserts the dashboard built without JavaScript errors. The report is almost
-entirely client-side, so a broken script yields a blank page that no
-server-side test would catch.
+`npm run test:render -- <output_dir> [--strict-a11y]` loads `00_REPORT.html`
+in a real browser, then clicks through **every tab** and asserts each one
+rendered (no new JS errors, non-trivial content) — not just the dashboard.
+The report is almost entirely client-side, so a broken script, or one that
+only throws once a specific tab mounts (e.g. a virtualized table), yields a
+blank page or an empty tab that no server-side test would catch. It also
+runs an [axe-core](https://github.com/dequelabs/axe-core) accessibility scan
+per tab; violations are always reported, and only fail the run with
+`--strict-a11y` — introducing the scan should surface existing UI debt, not
+silently turn it into a CI blocker.
+
+## Report rendering (`report.js` client-side)
+
+Inventory tables (`dataCard`) render virtualized: an initial ~150-row chunk
+paints immediately, further chunks load as a sentinel row crosses the scroll
+container's viewport (`IntersectionObserver`). The full dataset stays in
+memory client-side and the live filter re-renders from it — there is no
+longer a fixed row cap silently truncating what an operator can reach; the
+server-side `CAP` in `report.js` is now only a safety ceiling against an
+unrealistically large embedded JSON payload, not a DOM-size limit.

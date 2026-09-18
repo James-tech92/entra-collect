@@ -30,6 +30,7 @@
     "collect.js",
     "analyze.js",
     "report.js",
+    "compare.js",
     "collect.cmd",
     "login-browser.sh",
     "login-edge.sh",
@@ -46,6 +47,7 @@
     "collect:azure": "node collect.js --portal azure",
     "analyze": "node analyze.js",
     "report": "node report.js",
+    "compare": "node compare.js",
     "check-permissions": "node collect.js --check-permissions",
     "setup:browser": "playwright install chromium",
     "test": "node --test \"test/*.test.js\"",
@@ -55,6 +57,8 @@
     "node": ">=18"
   },
   "dependencies": {
+    "@azure/msal-node": "^6.0.1",
+    "axe-core": "^4.13.0",
     "exceljs": "^4.4.0",
     "jspdf": "^4.2.1",
     "playwright": "^1.62.0"

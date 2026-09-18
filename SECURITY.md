@@ -9,6 +9,7 @@ Entra Collect is intended for **authorized** security assessments of Microsoft E
 - Collection may capture **portal session tokens** in memory and write **tenant inventory** under `output_*/`.
 - Treat every `output_*` folder as **highly confidential** customer data (UPNs, role assignments, CA policies, hunting evidence).
 - Browser CDP profiles (`%LOCALAPPDATA%\entra-collect`, `~/Library/Application Support/entra-collect`, etc.) hold **live cookies** — keep them outside engagement archives and never commit them.
+- `--auth msal` (see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)) is memory-only by default: nothing is written to disk. `--auth-cache` opts into a persisted MSAL token cache under the same profile directory, AES-256-GCM encrypted with a key stored alongside it. This is **local encryption at rest, not an OS credential vault** (no Keychain / DPAPI / Secret Service) — it stops a token cache from leaking as plaintext in a folder zip or backup, not from a local attacker with read access to the profile directory. Run `node collect.js --msal-logout` to wipe it after an engagement.
 - Do not commit `.env`, certificates, or `*.local.json`.
 - Raw bearer tokens are not written to `00_token_info.json` by design; still protect the machine running the tool.
 

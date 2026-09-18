@@ -877,7 +877,10 @@ function buildReportPayload(outDir) {
       ? summary.usersWithoutMfaNonHuman
       : noMfaBreak.nonHuman;
 
-  const CAP = 800; // keep HTML usable while showing deep inventory
+  // Inventory tables render virtualized client-side (renderVirtualTable in the
+  // template below), so this is no longer a DOM-size limit — it only bounds
+  // the embedded JSON payload against a pathologically large tenant.
+  const CAP = 20000;
 
   return {
     meta: {
@@ -1217,6 +1220,14 @@ table { width: 100%; border-collapse: collapse; font-size: .82rem; }
 th, td { text-align: left; padding: .6rem .65rem; border-bottom: 1px solid var(--border); vertical-align: top; }
 th { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
 tr:hover td { background: var(--row-hover); }
+/* Virtualized inventory tables: fixed-height scroll area, sticky header, rows
+   appended incrementally as the sentinel row scrolls into view (see
+   renderVirtualTable). Keeps the DOM small on multi-thousand-row exports
+   without capping what the operator can actually reach. */
+.vt-scroll { overflow: auto; max-height: 560px; border: 1px solid var(--border); border-radius: 10px; }
+.vt-scroll table { border-collapse: separate; border-spacing: 0; }
+.vt-scroll thead th { position: sticky; top: 0; background: var(--card-bg); z-index: 1; box-shadow: 0 1px 0 var(--border); }
+.vt-sentinel td { text-align: center; color: var(--muted); font-size: 11px; padding: .5rem; }
 .muted { color: var(--muted); }
 .section { display: none; }
 .section.active { display: block; animation: fade-up .35s ease both; }
@@ -1544,13 +1555,89 @@ window.__REPORT__ = JSON.parse(document.getElementById("report-data").textConten
     }
     return h + '</tbody></table></div>';
   }
-  /** Filterable card with live search over row values */
+
+  /** Rows appended per chunk, both on first paint and as the sentinel scrolls into view. */
+  const VT_CHUNK = 150;
+  /** id -> { headers, rows, renderCell, searchable } — the full, un-truncated dataset behind each card. */
+  const FT_REGISTRY = Object.create(null);
+
+  function rowSearchText(headers, row) {
+    return headers.map(h => String(row[h] == null ? "" : row[h])).join("  ").toLowerCase();
+  }
+
+  /**
+   * Renders rows into the card's body incrementally: an initial chunk paints
+   * immediately, further chunks load as a sentinel <tr> crosses the scroll
+   * container's viewport (IntersectionObserver). Replaces the old fixed
+   * server-side CAP — the full dataset is always in memory and reachable by
+   * scrolling or filtering, not silently cut off at row N.
+   */
+  function renderVirtualTable(containerId, headers, rows, renderCell) {
+    const container = document.querySelector('[data-ft-body="' + containerId + '"]');
+    if (!container) return;
+    container.innerHTML = "";
+    if (!rows || !rows.length) {
+      container.innerHTML = '<p class="muted">No data in this export.</p>';
+      return;
+    }
+
+    const scroll = document.createElement("div");
+    scroll.className = "vt-scroll";
+    const tableEl = document.createElement("table");
+    const thead = document.createElement("thead");
+    thead.innerHTML = "<tr>" + headers.map(x => "<th>" + esc(x) + "</th>").join("") + "</tr>";
+    const tbody = document.createElement("tbody");
+    tableEl.appendChild(thead);
+    tableEl.appendChild(tbody);
+    scroll.appendChild(tableEl);
+    container.appendChild(scroll);
+
+    const sentinel = document.createElement("tr");
+    sentinel.className = "vt-sentinel";
+    sentinel.innerHTML = '<td colspan="' + headers.length + '">Loading more rows…</td>';
+    tbody.appendChild(sentinel);
+
+    let rendered = 0;
+    function renderChunk() {
+      const next = rows.slice(rendered, rendered + VT_CHUNK);
+      if (!next.length) return;
+      const frag = document.createDocumentFragment();
+      for (const r of next) {
+        const tr = document.createElement("tr");
+        tr.innerHTML = headers.map((hdr, i) => "<td>" + (renderCell ? renderCell(r, hdr, i) : esc(r[hdr])) + "</td>").join("");
+        frag.appendChild(tr);
+      }
+      tbody.insertBefore(frag, sentinel);
+      rendered += next.length;
+      if (rendered >= rows.length) {
+        observer.disconnect();
+        sentinel.remove();
+      }
+    }
+
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some(e => e.isIntersecting)) renderChunk();
+    }, { root: scroll, rootMargin: "300px 0px" });
+
+    renderChunk();
+    if (rendered < rows.length) observer.observe(sentinel);
+    else sentinel.remove();
+  }
+
+  /** Filterable, virtualized card with live search over row values. */
   function dataCard(title, totalHint, headers, rows, renderCell) {
     const id = "ft-" + Math.random().toString(36).slice(2, 9);
-    const n = (rows || []).length;
+    const allRows = rows || [];
+    const n = allRows.length;
     const hint = totalHint != null && totalHint > n
       ? totalHint + " total · showing " + n
       : n + " row" + (n === 1 ? "" : "s");
+    FT_REGISTRY[id] = {
+      headers,
+      rows: allRows,
+      renderCell,
+      searchable: allRows.map(r => rowSearchText(headers, r)),
+    };
     return '<div class="card" style="margin-bottom:1rem" data-ft="' + id + '">' +
       '<div style="display:flex;flex-wrap:wrap;gap:.5rem;align-items:center;justify-content:space-between;margin-bottom:.5rem">' +
         '<h2 style="margin:0">' + esc(title) + '</h2>' +
@@ -1558,26 +1645,32 @@ window.__REPORT__ = JSON.parse(document.getElementById("report-data").textConten
       '<div class="toolbar" style="margin-bottom:.5rem">' +
         '<input data-ft-filter="' + id + '" placeholder="Filter this table…" style="max-width:280px" />' +
       '</div>' +
-      '<div data-ft-body="' + id + '">' + table(headers, rows, renderCell) + '</div></div>';
+      '<div data-ft-body="' + id + '"></div></div>';
   }
+
+  /** Paints every registered card's initial chunk. Call once, after the section HTML is in the DOM. */
+  function mountDataCards() {
+    for (const id of Object.keys(FT_REGISTRY)) {
+      const entry = FT_REGISTRY[id];
+      renderVirtualTable(id, entry.headers, entry.rows, entry.renderCell);
+    }
+  }
+
   function wireFilters() {
     document.querySelectorAll("[data-ft-filter]").forEach(inp => {
       if (inp._wired) return;
       inp._wired = true;
       inp.addEventListener("input", () => {
         const id = inp.getAttribute("data-ft-filter");
-        const q = (inp.value || "").toLowerCase();
-        const body = document.querySelector('[data-ft-body="' + id + '"]');
-        if (!body) return;
-        let shown = 0, total = 0;
-        body.querySelectorAll("tbody tr").forEach(tr => {
-          total++;
-          const hit = !q || tr.textContent.toLowerCase().includes(q);
-          tr.style.display = hit ? "" : "none";
-          if (hit) shown++;
-        });
+        const entry = FT_REGISTRY[id];
+        if (!entry) return;
+        const q = (inp.value || "").toLowerCase().trim();
+        const filteredRows = q
+          ? entry.rows.filter((r, i) => entry.searchable[i].includes(q))
+          : entry.rows;
+        renderVirtualTable(id, entry.headers, filteredRows, entry.renderCell);
         const c = document.querySelector('[data-ft-count="' + id + '"]');
-        if (c) c.textContent = shown + " / " + total + " shown";
+        if (c) c.textContent = filteredRows.length + " / " + entry.rows.length + " shown";
       });
     });
   }
@@ -2480,6 +2573,7 @@ window.__REPORT__ = JSON.parse(document.getElementById("report-data").textConten
     dataCard("Probed tables", null, ["Table","Available","HasRows","Category","Classification"], tables, (r,h)=>
       (h==="Available"||h==="HasRows")?badge(r[h]?"Pass":"Fail"):esc(r[h]));
 
+  mountDataCards();
   wireFilters();
 
   document.querySelectorAll("#nav button").forEach(btn => {

@@ -20,7 +20,6 @@
 const { chromium } = require("playwright");
 const fs = require("fs");
 const path = require("path");
-const os = require("os");
 const readline = require("readline");
 const { runCollection } = require("./lib/collection");
 const {
@@ -37,6 +36,11 @@ const {
   tryMgGraphPowerShell,
   printPermissionMatrix,
 } = require("./lib/auth-cli");
+const {
+  acquireGraphToken,
+  clearCache: clearMsalCache,
+  resolveMsalCacheDir,
+} = require("./lib/msal-auth");
 const { createGraph } = require("./lib/graph");
 
 const args = process.argv.slice(2);
@@ -55,12 +59,21 @@ Recommended (interactive portal + MFA / passkeys):
   then:         node collect.js --auth browser --cdp http://127.0.0.1:9222
 
 Auth:
-  --auth auto|cli|browser|device|app
-                        auto    = CLI Graph first, else browser (default)
+  --auth auto|cli|msal|browser|device|app
+                        auto    = CLI Graph, then MSAL interactive, else browser (default)
                         cli     = Azure CLI / Graph PowerShell / mgc only
+                        msal    = MSAL Node interactive sign-in, no app registration
+                                  (Azure CLI's own first-party client, loopback + PKCE —
+                                  not device code, so CA's "block device code flow" doesn't apply)
                         browser = Edge/Brave/Chrome portal session (CDP or Playwright)
                         device  = az device-code (often blocked by CA)
                         app     = client credentials (see below)
+
+MSAL (--auth msal, or auto falling back to it):
+  --auth-cache          persist the MSAL token cache, AES-256-GCM encrypted on disk
+                        (opt-in; default is memory-only, gone when the process exits)
+  --msal-account UPN    skip the account picker, use this cached account
+  --msal-logout         wipe the persisted MSAL cache for this profile, then exit
 
 App-only (no interactive session — CI / scheduled):
   --client-id UUID --client-secret SECRET --tenant TENANT_ID
@@ -138,12 +151,15 @@ const clientCertKey = argValue("--client-cert-key", "") || null;
 const checkPermissionsOnly = args.includes("--check-permissions");
 const resumeDir = argValue("--resume", "") || null;
 const outRoot = argValue("--out", "") || __dirname;
-/** auto = CLI first then browser if needed; cli = CLI only; browser = Playwright only; device = az device-code; app = client credentials */
+const msalCacheOpt = args.includes("--auth-cache");
+const msalAccountArg = argValue("--msal-account", "") || null;
+const msalLogout = args.includes("--msal-logout");
+/** auto = CLI, then MSAL, then browser if needed; cli = CLI only; msal = MSAL only; browser = Playwright only; device = az device-code; app = client credentials */
 const authMode = String(
   argValue("--auth", clientId ? "app" : "auto")
 ).toLowerCase();
-if (!["auto", "cli", "browser", "device", "app"].includes(authMode)) {
-  console.error(`Invalid --auth ${authMode} (use auto|cli|browser|device|app)`);
+if (!["auto", "cli", "msal", "browser", "device", "app"].includes(authMode)) {
+  console.error(`Invalid --auth ${authMode} (use auto|cli|msal|browser|device|app)`);
   process.exit(1);
 }
 if (authMode === "app" && (!clientId || !tenantId || !(clientSecret || clientCert))) {
@@ -151,6 +167,16 @@ if (authMode === "app" && (!clientId || !tenantId || !(clientSecret || clientCer
     "--auth app requires --client-id, --tenant and one of --client-secret / --client-cert"
   );
   process.exit(1);
+}
+
+if (msalLogout) {
+  const removed = clearMsalCache();
+  console.log(
+    removed
+      ? `✓ MSAL cache cleared (${removed} file(s) removed from ${resolveMsalCacheDir()})`
+      : `MSAL cache already empty (${resolveMsalCacheDir()})`
+  );
+  process.exit(0);
 }
 
 function argValue(flag, fallback) {
@@ -667,30 +693,11 @@ function resolveMacAppName(name) {
 }
 
 /**
- * Where throw-away browser profiles live.
- *
- * Kept OUT of the tool directory on purpose: these profiles hold the customer's
- * portal session cookies, and a profile sitting next to the code ends up in
- * every zip, clone and backup of the engagement folder. Chrome/Edge 136+ also
- * ignore --remote-debugging-port on the *default* profile path, so this must
- * not be the user's normal profile either.
+ * Chrome/Edge 136+ ignore --remote-debugging-port on the *default* profile
+ * path, so the browser profile dir must be a dedicated, non-default one too
+ * — see lib/profile.js for why it lives outside the tool folder.
  */
-function resolveProfileRoot() {
-  if (process.env.ENTRA_COLLECT_PROFILE_DIR) {
-    return process.env.ENTRA_COLLECT_PROFILE_DIR;
-  }
-  const base =
-    process.platform === "win32"
-      ? process.env.LOCALAPPDATA || os.tmpdir()
-      : process.platform === "darwin"
-        ? path.join(os.homedir(), "Library", "Application Support")
-        : process.env.XDG_STATE_HOME || path.join(os.homedir(), ".local", "state");
-  return path.join(base, "entra-collect", "profiles");
-}
-
-function resolveUserDataDir(name) {
-  return path.join(resolveProfileRoot(), name);
-}
+const { resolveProfileRoot, resolveUserDataDir } = require("./lib/profile");
 
 /** Chromium flags so Brave/Edge keep in-browser hybrid QR (not macOS USB-only dialog). */
 function passkeyLaunchArgs() {
@@ -1081,6 +1088,53 @@ async function main() {
     }
   }
 
+  // ── 1b) MSAL Node — no app registration (Azure CLI's own first-party client)
+  if (authMode === "msal") {
+    const res = await acquireGraphToken({
+      tenantId,
+      persist: msalCacheOpt,
+      preferredUsername: msalAccountArg,
+    });
+    if (!res.ok) {
+      console.error(`\n❌ MSAL sign-in failed: ${res.error}\n`);
+      process.exit(1);
+    }
+    pool.add(res.token, { source: res.source });
+    console.log(
+      `  ✓ MSAL Graph token (score=${res.score} policyRead=${res.policyRead}` +
+        (res.account ? ` account=${res.account.username}` : "") +
+        ")"
+    );
+    authMeta.cli = {
+      ok: true,
+      attempts: [{ source: res.source, ok: true }],
+      source: res.source,
+      policyRead: res.policyRead,
+      score: res.score,
+    };
+    authMeta.reason = "msal";
+    pool.onRefresh(async () => {
+      const again = await acquireGraphToken({
+        tenantId,
+        persist: msalCacheOpt,
+        nonInteractive: true,
+        account: res.account,
+      });
+      return again.ok ? again.token : null;
+    }, "msal");
+    if (!(await probeGraphOrg(pool))) {
+      console.error("\n❌ Graph /organization failed with MSAL token.\n");
+      process.exit(1);
+    }
+    if (!(await probeCaAccess(pool))) {
+      console.warn(
+        "  ⚠ MSAL token cannot read Conditional Access — CA sections may be empty.\n" +
+          "     This app has no Policy.Read.All consent in this tenant yet, or the signed-in\n" +
+          "     account lacks a role that grants it. Try --auth auto|browser instead.\n"
+      );
+    }
+  }
+
   // ── 2) CLI Graph (az / MgGraph / mgc)
   if (authMode === "auto" || authMode === "cli") {
     const probe = await enrichPoolFromCli(pool);
@@ -1135,6 +1189,48 @@ async function main() {
     }
   }
 
+  // ── 2b) MSAL fallback (auto only) — lighter than a full portal blade tour:
+  // no Playwright, no CDP, just a loopback browser popup. Tried before the
+  // heavy browser flow so `auto` only launches Playwright when it truly has
+  // to (MTP / Defender hunting tokens the portal alone can mint).
+  if (
+    authMode === "auto" &&
+    (!pool.bestPolicy() || !(await probeCaAccess(pool)))
+  ) {
+    console.log(
+      "\n  CLI token insufficient for CA — trying MSAL interactive sign-in" +
+        " (lighter than the full browser portal tour)…\n"
+    );
+    const msalRes = await acquireGraphToken({
+      tenantId,
+      persist: msalCacheOpt,
+      preferredUsername: msalAccountArg,
+    });
+    authMeta.msal = msalRes.ok
+      ? { ok: true, source: msalRes.source, policyRead: msalRes.policyRead, score: msalRes.score }
+      : { ok: false, error: msalRes.error };
+    if (msalRes.ok) {
+      pool.add(msalRes.token, { source: msalRes.source });
+      console.log(
+        `  ✓ MSAL Graph token (score=${msalRes.score} policyRead=${msalRes.policyRead}` +
+          (msalRes.account ? ` account=${msalRes.account.username}` : "") +
+          ")"
+      );
+      pool.onRefresh(async () => {
+        const again = await acquireGraphToken({
+          tenantId,
+          persist: msalCacheOpt,
+          nonInteractive: true,
+          account: msalRes.account,
+        });
+        return again.ok ? again.token : null;
+      }, "msal");
+      authMeta.reason = "msal-fallback";
+    } else {
+      console.log(`  · MSAL sign-in skipped or failed: ${msalRes.error}`);
+    }
+  }
+
   // ── 3) Browser if needed
   const needBrowser =
     authMode === "browser" ||
@@ -1166,7 +1262,11 @@ async function main() {
       process.exit(1);
     }
   } else if (authMode === "auto" || authMode === "device") {
-    console.log("\n  ✓ Using CLI Graph token (browser not required).\n");
+    console.log(
+      authMeta.reason === "msal-fallback"
+        ? "\n  ✓ Using MSAL Graph token (browser not required).\n"
+        : "\n  ✓ Using CLI Graph token (browser not required).\n"
+    );
     if (!authMeta.reason) authMeta.reason = "cli-sufficient";
   }
 

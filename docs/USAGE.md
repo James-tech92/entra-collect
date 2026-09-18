@@ -42,13 +42,17 @@ npm run collect:azure   # --portal azure
 | `--browser auto\|brave\|msedge\|chrome\|chromium` | `auto` | Platform preference order (Brave→Edge→Chrome on macOS; Edge first on Windows) |
 | `--cdp URL` | off | Attach to a browser started via `./login-browser.sh` / `login-edge.cmd` |
 | `--no-passkeys` | off | Disable WebAuthn (password / Authenticator push only) |
-| `--auth auto\|cli\|browser\|device\|app` | `auto` | See below |
+| `--auth auto\|cli\|msal\|browser\|device\|app` | `auto` | See below |
+| `--auth-cache` | off | Persist the MSAL token cache, AES-256-GCM encrypted (`--auth msal`/`auto` only) |
+| `--msal-account UPN` | — | Skip the MSAL account picker, use this cached account |
+| `--msal-logout` | — | Wipe the persisted MSAL cache for this profile, then exit |
 | `--client-id` / `--client-secret` / `--client-cert` / `--client-cert-key` | — | App-only credentials (implies `--auth app`) |
 
 ### Auth modes
 
-- **`auto`** — probe local CLI for a Graph token; if Policy.Read / CA probe OK, skip browser; else spawn a browser.
+- **`auto`** — probe local CLI for a Graph token; then MSAL interactive; if Policy.Read / CA probe still isn't OK, spawn a browser.
 - **`cli`** — CLI only (fail if no token). Use after `az login` or `Connect-MgGraph -Scopes …`.
+- **`msal`** — MSAL Node interactive sign-in (loopback + PKCE), Azure CLI's own client id, no app registration and no `az`/PowerShell needed. Not device code, so Conditional Access's "block device code flow" control doesn't apply.
 - **`browser`** — portal session via Playwright **or** `--cdp` attach to `login-browser.sh` / `login-edge.cmd`.
 - **`device`** — `az login --use-device-code`, for passkeys that live on a phone (often CA-blocked).
 - **`app`** — client credentials. No interactive session, so this is the mode for Linux, CI and scheduled runs.
