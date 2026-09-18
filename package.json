@@ -37,6 +37,7 @@
     "login-edge.cmd",
     "lib/",
     "web/",
+    "scripts/",
     "docs/",
     "test/",
     "README.md",
@@ -54,7 +55,8 @@
     "test": "node --test \"test/*.test.js\"",
     "test:stable": "node --experimental-test-isolation=none --test \"test/*.test.js\"",
     "test:render": "node test/render-check.js",
-    "build:web": "esbuild web/src/main.js --bundle --outfile=docs/webapp/app.bundle.js --platform=browser --target=es2020 --format=esm --sourcemap"
+    "build:web": "esbuild web/src/main.js --bundle --outfile=docs/webapp/app.bundle.js --platform=browser --target=es2020 --format=esm --sourcemap",
+    "register-web-app": "node scripts/register-web-app.js"
   },
   "engines": {
     "node": ">=18"

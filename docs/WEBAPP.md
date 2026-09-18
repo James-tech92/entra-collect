@@ -42,7 +42,40 @@ that exact hosted URL registered. There is no way around this; it's how
 the SPA auth-code + PKCE flow is specified, not a limitation of this
 implementation.
 
-## Setup (five minutes)
+## Setup — scripted (recommended)
+
+`scripts/register-web-app.js` does steps 1-3 below for you: creates the app
+registration (multitenant, SPA platform, your redirect URI), requests every
+scope in [`lib/scopes.js`](../lib/scopes.js)'s `REQUIRED_SCOPES` (resolved
+by name against the tenant's own Graph metadata — never hardcoded GUIDs),
+and writes the resulting client id into `web/src/config.js`.
+
+Requires the [az CLI](https://learn.microsoft.com/cli/azure/install-azure-cli),
+logged in (`az login`) as **Application Administrator**, **Cloud Application
+Administrator**, or **Global Administrator** on the tenant that will own
+this app registration — that's a one-time-setup requirement, distinct from
+the Global Reader / Security Reader the app is used with afterwards.
+
+```bash
+npm install
+az login
+node scripts/register-web-app.js http://127.0.0.1:8080/
+npm run build:web
+```
+
+The redirect URI must be the *exact* URL the page will be opened at
+(protocol, host, port, trailing slash) — use your local dev server's URL
+while testing, re-run against the real hosted URL before going live
+(re-running creates a **new** app registration each time; delete the old
+one or reuse its client id with a second redirect URI added manually).
+
+Not run against a live tenant during development here — the scope
+resolution and request-body logic are covered by
+[`test/register-web-app.test.js`](../test/register-web-app.test.js), but
+the actual Azure AD calls are untested. Report back if something doesn't
+match this doc.
+
+## Setup — manual (five minutes, if you'd rather not run a script that creates Azure resources)
 
 1. **Register the app** — [entra.microsoft.com](https://entra.microsoft.com) →
    *Identity → Applications → App registrations → New registration*.
