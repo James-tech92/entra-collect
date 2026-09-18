@@ -51,6 +51,7 @@
     "check-permissions": "node collect.js --check-permissions",
     "setup:browser": "playwright install chromium",
     "test": "node --test \"test/*.test.js\"",
+    "test:stable": "node --experimental-test-isolation=none --test \"test/*.test.js\"",
     "test:render": "node test/render-check.js"
   },
   "engines": {

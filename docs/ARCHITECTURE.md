@@ -223,6 +223,19 @@ token expiry/renewal/throttling, manifest status semantics, the resume cache,
 CSV round-tripping of multi-line/quoted fields, the MSAL encrypted cache
 plugin, and the `compare.js` run-diffing logic.
 
+> On Node 22.x, `npm test` can intermittently fail with `ERR_TEST_FAILURE` /
+> `Unable to deserialize cloned data due to invalid or unsupported version`.
+> That's an upstream Node.js test-runner bug
+> ([nodejs/node#64061](https://github.com/nodejs/node/issues/64061)): a
+> non-ASCII byte in a test file's stdout (this codebase logs with ✓/⚠/🔒/↻
+> throughout `lib/*.js`) can desync the IPC framing between the runner and
+> its per-file worker process. Fixed on `main`/v24.x/v26.x; the v22.x
+> backport is still open ([nodejs/node#65934](https://github.com/nodejs/node/issues/65934)).
+> Not a bug in this repo's tests or application code — a failing assertion
+> would never look like this. `npm run test:stable` works around it
+> (`--experimental-test-isolation=none`, single-process, no IPC) until the
+> backport lands or the project moves to Node 24+.
+
 `npm run test:render -- <output_dir> [--strict-a11y]` loads `00_REPORT.html`
 in a real browser, then clicks through **every tab** and asserts each one
 rendered (no new JS errors, non-trivial content) — not just the dashboard.
