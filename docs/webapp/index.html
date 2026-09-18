@@ -53,7 +53,7 @@ footer a { color: var(--accent); }
 <body>
 <div class="wrap">
   <h1>Entra Collect — Web</h1>
-  <p class="tagline">Sign in and check Graph permission coverage for this tenant — the browser equivalent of <code>collect.js --check-permissions</code>. Read-only; nothing is collected yet in this phase.</p>
+  <p class="tagline">Sign in, check Graph permission coverage, and collect Conditional Access policies — entirely client-side, read-only. See <a href="../WEBAPP.md">docs/WEBAPP.md</a> for what's ported vs. still CLI-only.</p>
 
   <div id="configWarning" class="warning" hidden>
     No app registration configured. Edit <code>web/src/config.js</code> with your own
@@ -69,9 +69,14 @@ footer a { color: var(--accent); }
 
   <div id="identity" class="card" hidden></div>
 
-  <div id="matrix" class="card" hidden></div>
+  <div id="matrix" class="card" hidden>
+    <div id="matrixTable"></div>
+    <button id="btnCollectCa" class="btn" style="margin-top:.75rem" hidden>Collect Conditional Access policies</button>
+  </div>
 
   <div id="consentBox" class="card" hidden></div>
+
+  <div id="caResult" class="card" hidden></div>
 
   <footer>
     Read-only Entra ID / Microsoft 365 assessment tool — authorized engagements only.

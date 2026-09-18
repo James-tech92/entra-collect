@@ -4,14 +4,18 @@ A static, hosted page: sign in with a button, everything runs client-side.
 No server, no backend — tenant data never leaves the tab, same trust model
 as the CLI's local-only design.
 
-**Phase 1 (this)**: sign-in + Graph permission coverage check — the browser
-equivalent of `node collect.js --check-permissions`. No tenant data is
-collected yet.
+**Built so far**: sign-in + Graph permission coverage check (the browser
+equivalent of `node collect.js --check-permissions`), plus a first real
+collection slice — Conditional Access policies (`web/src/collect-ca.js`),
+with name resolution (users/groups/roles/apps/locations →
+display names) via `lib/resolve.js`, same as the CLI's `02_CA_Audit.csv`.
 
-**Not yet built**: actual collection (CA policies, users, apps, ...),
-correlation (`NARR.*`), and report rendering in the page. `lib/graph.js`,
-`lib/net.js` and `lib/tokens.js` are already browser-portable (no Node-only
-APIs) and are the base to build that on next — see "What's next" below.
+**Not yet built**: every other collection area (users, apps, privileged
+roles, MFA, Secure Score, ...), correlation (`NARR.*`), and the full report
+view in the page — currently just a plain table. `lib/graph.js`,
+`lib/resolve.js`, `lib/net.js` and `lib/tokens.js` are already
+browser-portable (no Node-only APIs) and are the base for the rest — see
+"What's next" below.
 
 **Out of scope for this app, permanently**: Defender Advanced Hunting via
 the `security.microsoft.com` portal apiproxy. That path relies on an actual
@@ -94,15 +98,30 @@ This mirrors how any multi-tenant security SaaS onboards a customer tenant
 
 Roughly in priority order, each usable on its own:
 
-1. Port `lib/graph.js` collection calls one area at a time (Conditional
-   Access first — highest signal, no MDE dependency) into `web/src`,
-   writing to an in-memory structure instead of CSV files.
+1. Port more `lib/graph.js` collection calls into `web/src` (privileged
+   roles and MFA registration are the next highest-signal areas), writing
+   to an in-memory structure instead of CSV files — `web/src/collect-ca.js`
+   is the pattern to follow.
 2. Adapt `lib/analyze.js`'s correlation rules to read that in-memory
    structure instead of `fs.readFileSync`-ing CSVs — the rules themselves
    don't need to change, only where they get their input.
 3. Reuse `report.js`'s `renderHtml`/dashboard template against the
    in-memory payload instead of one read from `output_*/` — the template
    already expects exactly the shape `buildReportPayload` returns.
+
+## Alternative: browser extension (not built, no app registration needed)
+
+A browser extension could reproduce the CLI's `--auth browser` trick — read
+`Authorization: Bearer` headers off the *portal's own* traffic
+(`chrome.webRequest`) while the operator browses `entra.microsoft.com` /
+`security.microsoft.com` normally — instead of running its own OAuth flow.
+That would need no app registration at all (same reason the CDP approach
+doesn't: it's not this tool's own OAuth request, so there's no redirect_uri
+to register) and wouldn't be exposed to Conditional Access's device-code
+block either. `lib/tokens.js` (`TokenPool`), `lib/scopes.js` and
+`web/src/table.js` are already reusable for it as-is. Not started — this
+web app's `loginPopup` path was prioritized first since it needed no new
+runtime model (manifest, service worker, host permissions).
 
 ## Local dev loop
 

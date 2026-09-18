@@ -1,12 +1,16 @@
 /**
- * Entry point for the hosted Entra Collect web app (Phase 1: auth +
- * permission check — the browser equivalent of `collect.js --check-permissions`).
+ * Entry point for the hosted Entra Collect web app.
  *
- * Deliberately does not collect tenant data yet. See docs/WEBAPP.md for
- * what's built, what's next, and the app-registration prerequisite.
+ * Phase 1: auth + permission check (browser equivalent of
+ * `collect.js --check-permissions`).
+ * Phase 2 (this): first real collection slice — Conditional Access
+ * policies, the highest-signal area with no MDE dependency. See
+ * docs/WEBAPP.md for what's ported vs. still CLI-only.
  */
-import { decodeJwt } from "../../lib/tokens.js";
+import { TokenPool, decodeJwt } from "../../lib/tokens.js";
 import { evaluatePermissions } from "../../lib/scopes.js";
+import { collectConditionalAccess } from "./collect-ca.js";
+import { escapeHtml, renderTable } from "./table.js";
 import {
   login,
   logout,
@@ -17,6 +21,11 @@ import {
 import { CLIENT_ID } from "./config.js";
 
 const el = (id) => document.getElementById(id);
+
+/** One pool for the whole page session — set once on sign-in, read by the
+ * collection buttons. Never persisted (matches the CLI's memory-only
+ * default; see lib/msal-auth.js for the opt-in encrypted cache there). */
+let pool = null;
 
 function setStatus(msg, tone = "muted") {
   const s = el("status");
@@ -39,20 +48,12 @@ function renderIdentity(payload, account) {
   el("identity").hidden = false;
 }
 
-function escapeHtml(s) {
-  return String(s ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-
 function renderPermissionMatrix(payload) {
   const { rows, missing } = evaluatePermissions(payload, { hasPortalSession: false });
   const icon = { ok: "✓", portal: "◐", missing: "✗" };
   const toneClass = { ok: "ok", portal: "warn", missing: "bad" };
 
-  el("matrix").innerHTML =
+  el("matrixTable").innerHTML =
     "<table><thead><tr><th></th><th>Area</th><th>Detail</th></tr></thead><tbody>" +
     rows
       .map(
@@ -82,6 +83,42 @@ function renderPermissionMatrix(payload) {
   } else {
     el("consentBox").hidden = true;
   }
+
+  const caRow = rows.find((r) => r.area === "Conditional Access");
+  el("btnCollectCa").hidden = caRow.status !== "ok";
+}
+
+async function handleCollectCa() {
+  const btn = el("btnCollectCa");
+  btn.disabled = true;
+  const prevLabel = btn.textContent;
+  el("caResult").hidden = false;
+  el("caResult").innerHTML = '<p class="muted">Fetching Conditional Access policies…</p>';
+  try {
+    const result = await collectConditionalAccess(pool, {
+      onProgress: (msg) => {
+        el("caResult").innerHTML = '<p class="muted">' + escapeHtml(msg) + "</p>";
+      },
+    });
+    el("caResult").innerHTML =
+      "<h3 style=\"margin-top:0\">Conditional Access — " + result.total + " polic" +
+      (result.total === 1 ? "y" : "ies") + "</h3>" +
+      "<p class=\"muted\">" + result.enforced + " enforced · " + result.reportOnly +
+      " report-only · " + result.namedLocationsCount + " named location(s)</p>" +
+      '<div id="caTable"></div>';
+    renderTable(
+      el("caTable"),
+      ["PolicyName", "IsEnforced", "GrantControls", "ClientAppTypes", "RiskFlags"],
+      result.rows
+    );
+  } catch (e) {
+    el("caResult").innerHTML =
+      '<p class="status bad">Collection failed: ' +
+      escapeHtml(e && e.message ? e.message : String(e)) + "</p>";
+  } finally {
+    btn.disabled = false;
+    btn.textContent = prevLabel;
+  }
 }
 
 async function handleSignedIn(account) {
@@ -94,6 +131,14 @@ async function handleSignedIn(account) {
     setStatus("Signed in, but the returned token could not be decoded.", "bad");
     return;
   }
+
+  pool = new TokenPool();
+  pool.add(result.accessToken, { source: "msal-browser" });
+  pool.onRefresh(async () => {
+    const again = await acquireTokenSilent(account);
+    return again.accessToken;
+  }, "msal-browser");
+
   renderIdentity(payload, account);
   renderPermissionMatrix(payload);
   setStatus("Signed in.", "ok");
@@ -117,6 +162,8 @@ async function main() {
     if (account) await logout(account);
     location.reload();
   });
+
+  el("btnCollectCa").addEventListener("click", handleCollectCa);
 
   const existing = await getExistingAccount().catch(() => null);
   if (existing) {

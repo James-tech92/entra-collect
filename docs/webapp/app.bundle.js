@@ -107,7 +107,7 @@ var require_tokens = __commonJS({
       if (exp == null) return null;
       return exp - Math.floor(Date.now() / 1e3);
     }
-    var TokenPool = class {
+    var TokenPool2 = class {
       constructor() {
         this.byHash = /* @__PURE__ */ new Map();
         this.refreshers = [];
@@ -336,7 +336,7 @@ var require_tokens = __commonJS({
       }
     };
     module.exports = {
-      TokenPool,
+      TokenPool: TokenPool2,
       decodeJwt: decodeJwt2,
       scopeSet,
       hasPolicyRead,
@@ -461,9 +461,999 @@ var require_scopes = __commonJS({
   }
 });
 
+// lib/net.js
+var require_net = __commonJS({
+  "lib/net.js"(exports, module) {
+    var DEFAULT_TIMEOUT_MS = 6e4;
+    var DEFAULT_RETRIES = 3;
+    var MAX_BACKOFF_MS = 3e4;
+    var TRANSIENT_CODES = /* @__PURE__ */ new Set([
+      "ECONNRESET",
+      "ECONNREFUSED",
+      "ENOTFOUND",
+      "EAI_AGAIN",
+      "EPIPE",
+      "ETIMEDOUT",
+      "ECONNABORTED",
+      "EHOSTUNREACH",
+      "ENETUNREACH",
+      "ENETDOWN",
+      "UND_ERR_CONNECT_TIMEOUT",
+      "UND_ERR_HEADERS_TIMEOUT",
+      "UND_ERR_BODY_TIMEOUT",
+      "UND_ERR_SOCKET"
+    ]);
+    function sleep(ms) {
+      return new Promise((r) => setTimeout(r, ms));
+    }
+    function errorCode(e) {
+      return String(e && (e.code || e.cause && e.cause.code) || "");
+    }
+    function isTransientError(e) {
+      if (!e) return false;
+      if (e.name === "AbortError" || e.name === "TimeoutError") return true;
+      if (TRANSIENT_CODES.has(errorCode(e))) return true;
+      const msg = String(e.message || "").toLowerCase();
+      return msg.includes("fetch failed") || msg.includes("terminated") || msg.includes("socket hang up") || msg.includes("network") || msg.includes("timeout");
+    }
+    function isTransientStatus(status) {
+      return status === 408 || status === 429 || status >= 500 && status <= 599;
+    }
+    function backoffMs(attempt, retryAfterSec) {
+      if (retryAfterSec != null && Number.isFinite(retryAfterSec)) {
+        return Math.min(Math.max(retryAfterSec, 1), 60) * 1e3;
+      }
+      const base = Math.min(1e3 * 2 ** (attempt - 1), MAX_BACKOFF_MS);
+      return base + Math.floor(Math.random() * 400);
+    }
+    function parseRetryAfter(res) {
+      const raw = res && res.headers && res.headers.get("Retry-After");
+      if (!raw) return null;
+      const n = Number(raw);
+      if (Number.isFinite(n)) return n;
+      const at = Date.parse(raw);
+      return Number.isFinite(at) ? Math.max(0, (at - Date.now()) / 1e3) : null;
+    }
+    function httpError(status, url, text) {
+      const err = new Error(`HTTP ${status} ${url}
+${String(text).slice(0, 400)}`);
+      err.status = status;
+      err.url = url;
+      err.body = text;
+      return err;
+    }
+    async function fetchResilient(url, opts = {}) {
+      const {
+        method = "GET",
+        headers = {},
+        body = null,
+        timeoutMs = DEFAULT_TIMEOUT_MS,
+        retries = DEFAULT_RETRIES,
+        onRetry = null,
+        signal = null
+      } = opts;
+      let lastErr = null;
+      for (let attempt = 1; attempt <= retries + 1; attempt++) {
+        const timeoutSignal = AbortSignal.timeout(timeoutMs);
+        const reqSignal = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
+        let res;
+        try {
+          res = await fetch(url, { method, headers, body, signal: reqSignal });
+        } catch (e) {
+          lastErr = e;
+          if (signal && signal.aborted) throw e;
+          if (attempt > retries || !isTransientError(e)) {
+            const wrapped = new Error(
+              `${e.name === "TimeoutError" ? `timeout after ${timeoutMs}ms` : e.message} \u2014 ${url}`
+            );
+            wrapped.cause = e;
+            wrapped.transient = isTransientError(e);
+            throw wrapped;
+          }
+          const wait = backoffMs(attempt);
+          if (onRetry) onRetry(attempt, e.message || String(e), wait);
+          await sleep(wait);
+          continue;
+        }
+        if (res.ok) return res;
+        if (isTransientStatus(res.status) && attempt <= retries) {
+          const wait = backoffMs(attempt, parseRetryAfter(res));
+          await res.text().catch(() => {
+          });
+          if (onRetry) onRetry(attempt, `HTTP ${res.status}`, wait);
+          await sleep(wait);
+          continue;
+        }
+        const text = await res.text().catch(() => "");
+        throw httpError(res.status, url, text);
+      }
+      throw lastErr || new Error(`Request failed after ${retries + 1} attempts: ${url}`);
+    }
+    async function fetchJsonResilient(url, opts = {}) {
+      const res = await fetchResilient(url, opts);
+      const text = await res.text();
+      if (!text) return null;
+      try {
+        return JSON.parse(text);
+      } catch (e) {
+        throw new Error(`Invalid JSON from ${url}: ${String(e.message).slice(0, 120)}`);
+      }
+    }
+    module.exports = {
+      fetchResilient,
+      fetchJsonResilient,
+      isTransientError,
+      isTransientStatus,
+      sleep,
+      DEFAULT_TIMEOUT_MS,
+      DEFAULT_RETRIES
+    };
+  }
+});
+
+// lib/hunt.js
+var require_hunt = __commonJS({
+  "lib/hunt.js"(exports, module) {
+    var { scopeSet } = require_tokens();
+    var { fetchResilient, sleep } = require_net();
+    var HUNT_TIMEOUT_MS = 18e4;
+    var MTP_HUNT_PATHS = [
+      "/api/advancedhunting/run",
+      "/api/advancedqueries/run"
+    ];
+    var PORTAL_QUERY_PATH = "/apiproxy/hunting/huntingService/queryExecutor/disruptionSummaryQuery";
+    var PORTAL_SCHEMA_PATH = "/apiproxy/hunting/huntingService/schema";
+    var PORTAL_HUNTING_URL = "https://security.microsoft.com/v2/advanced-hunting";
+    var HEADER_KEYS = [
+      "x-xsrf-token",
+      "x-tid",
+      "tenant-id",
+      "x-clientpage",
+      "x-clientpkgversion",
+      "x-accepted-statuscode",
+      "x-hunting-execution-context",
+      "m-package",
+      "m-name",
+      "m-type",
+      "m-componentname",
+      "m-connection",
+      "m-viewid"
+    ];
+    function isMtpAudience(aud) {
+      const a = String(aud || "").toLowerCase();
+      return a.includes("api.security.microsoft.com") || a.includes("api.securitycenter.microsoft.com") || a.includes("api-eu.security.microsoft.com") || a.includes("api-uk.security.microsoft.com") || a.includes("api-us.security.microsoft.com") || a.includes("api-au.security.microsoft.com") || a.includes("api-in.security.microsoft.com");
+    }
+    function mtpBaseFromAud(aud) {
+      const a = String(aud || "").replace(/\/$/, "");
+      if (/^https?:\/\//i.test(a)) return a;
+      return `https://${a}`;
+    }
+    function hasThreatHuntingScope(payload) {
+      const s = scopeSet(payload || {});
+      return s.has("ThreatHunting.Read.All");
+    }
+    function normalizeHuntResponse(data) {
+      if (!data || typeof data !== "object") return { results: [], raw: data };
+      const results = data.results || data.Results || data.Rows || data.rows || (Array.isArray(data.value) ? data.value : null) || [];
+      return {
+        results: Array.isArray(results) ? results : [],
+        schema: data.schema || data.Schema || null,
+        stats: data.stats || data.Stats || data.EnhancedQueryStats || null,
+        backend: data._backend || null,
+        raw: data
+      };
+    }
+    async function fetchJson(token, url, body) {
+      const res = await fetchResilient(url, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+          Accept: "application/json"
+        },
+        body: JSON.stringify(body),
+        timeoutMs: HUNT_TIMEOUT_MS,
+        onRetry: (attempt, reason, waitMs) => {
+          console.warn(
+            `  \u21BB hunt retry ${attempt} in ${Math.round(waitMs / 1e3)}s (${String(reason).slice(0, 80)})`
+          );
+        }
+      });
+      const text = await res.text();
+      try {
+        return text ? JSON.parse(text) : null;
+      } catch {
+        return null;
+      }
+    }
+    function pickSpaHeaders(h) {
+      const out = {};
+      for (const k of HEADER_KEYS) {
+        if (h[k]) out[k] = h[k];
+      }
+      if (!out["x-accepted-statuscode"]) {
+        out["x-accepted-statuscode"] = "OK|Aborted|Unauthorized|Forbidden";
+      }
+      if (!out["x-clientpage"]) out["x-clientpage"] = "/v2/advanced-hunting";
+      out.accept = "application/json";
+      out["content-type"] = "application/json";
+      return out["x-xsrf-token"] && out["x-tid"] ? out : null;
+    }
+    var PortalHuntSession = class {
+      constructor() {
+        this.page = null;
+        this.headers = null;
+        this.headersAt = 0;
+        this._queue = Promise.resolve();
+        this._listening = false;
+      }
+      get ready() {
+        return !!(this.page && this.headers && this.headers["x-xsrf-token"]);
+      }
+      /** Drop cached XSRF so ready=false until a fresh capture. */
+      invalidateHeaders(reason) {
+        if (reason) {
+          console.warn(`  \u26A0 Portal hunting headers invalidated: ${reason}`);
+        }
+        this.headers = null;
+        this.headersAt = 0;
+      }
+      _onRequest(req) {
+        try {
+          const url = req.url();
+          if (!/security\.microsoft\.com\/apiproxy\/hunting\//i.test(url)) return;
+          const picked = pickSpaHeaders(req.headers());
+          if (picked) {
+            this.headers = picked;
+            this.headersAt = Date.now();
+          }
+        } catch {
+        }
+      }
+      async attach(page) {
+        if (!page) return false;
+        let huntPage = page;
+        try {
+          const pages = page.context().pages();
+          const found = pages.find(
+            (p) => /security\.microsoft\.com/i.test(p.url()) && /hunting/i.test(p.url())
+          );
+          if (found) huntPage = found;
+        } catch {
+        }
+        if (this.page && this.page !== huntPage && this._listening) {
+          try {
+            this.page.off("request", this._boundOnRequest);
+          } catch {
+          }
+        }
+        this.page = huntPage;
+        this._boundOnRequest = this._onRequest.bind(this);
+        this.page.on("request", this._boundOnRequest);
+        this._listening = true;
+        await this.ensureHuntingSurface();
+        const deadline = Date.now() + 8e3;
+        while (Date.now() < deadline) {
+          if (this.headers && this.headers["x-xsrf-token"]) break;
+          await sleep(400);
+        }
+        if (!this.ready) await this.refreshHeaders({ force: true });
+        return this.ready;
+      }
+      async ensureHuntingSurface() {
+        if (!this.page) throw new Error("No portal page attached");
+        const url = this.page.url() || "";
+        if (/security\.microsoft\.com/i.test(url) && /hunting/i.test(url)) {
+          return;
+        }
+        console.log("  \xB7 Opening Advanced Hunting portal for apiproxy session\u2026");
+        await this.page.goto(PORTAL_HUNTING_URL, {
+          waitUntil: "domcontentloaded",
+          timeout: 12e4
+        });
+        await sleep(1e4);
+      }
+      async refreshHeaders({ force = false } = {}) {
+        if (!this.page) return false;
+        if (!force && this.headers && Date.now() - this.headersAt < 4 * 60 * 1e3) {
+          return true;
+        }
+        if (force) {
+          this.headers = null;
+          this.headersAt = 0;
+        }
+        const url = this.page.url() || "";
+        try {
+          if (/security\.microsoft\.com/i.test(url) && /hunting/i.test(url)) {
+            await this.page.reload({
+              waitUntil: "domcontentloaded",
+              timeout: 9e4
+            });
+          } else {
+            await this.page.goto(PORTAL_HUNTING_URL, {
+              waitUntil: "domcontentloaded",
+              timeout: 12e4
+            });
+          }
+        } catch (e) {
+          console.warn(
+            `  \u26A0 portal hunting reload: ${String(e.message || e).split("\n")[0]}`
+          );
+        }
+        const deadline = Date.now() + 2e4;
+        while (Date.now() < deadline) {
+          if (this.headers && this.headers["x-xsrf-token"]) return true;
+          await sleep(500);
+        }
+        try {
+          const fallback = await this.page.evaluate(() => {
+            const cookie = document.cookie || "";
+            const xsrf = (cookie.match(/(?:^|; )XSRF-TOKEN=([^;]*)/) || cookie.match(/(?:^|; )xsrf-token=([^;]*)/) || [])[1] || null;
+            const tid = (location.href.match(/[?&]tid=([0-9a-f-]{36})/i) || [])[1] || null;
+            return {
+              xsrf: xsrf ? decodeURIComponent(xsrf) : null,
+              tid
+            };
+          });
+          if (fallback.xsrf && fallback.tid) {
+            this.headers = pickSpaHeaders({
+              "x-xsrf-token": fallback.xsrf,
+              "x-tid": fallback.tid,
+              "tenant-id": fallback.tid,
+              "x-clientpage": "/v2/advanced-hunting"
+            });
+            this.headersAt = Date.now();
+            return !!this.headers;
+          }
+        } catch {
+        }
+        return this.ready;
+      }
+      async _portalFetch(queryText) {
+        return this.page.evaluate(
+          async ({ path, headers, queryText: qt }) => {
+            const res = await fetch(path, {
+              method: "POST",
+              credentials: "include",
+              headers,
+              body: JSON.stringify({ QueryText: qt })
+            });
+            const text = await res.text();
+            return { status: res.status, text };
+          },
+          {
+            path: PORTAL_QUERY_PATH,
+            headers: this.headers,
+            queryText
+          }
+        );
+      }
+      /**
+       * Serialize portal queries (single page + hunting quota).
+       */
+      runQuery(query) {
+        const job = this._queue.then(() => this._runQueryOnce(query));
+        this._queue = job.catch(() => {
+        });
+        return job;
+      }
+      async _runQueryOnce(query) {
+        const q = String(query || "").trim();
+        if (!q) throw new Error("Empty hunting query");
+        if (!this.page) throw new Error("Portal hunting page not attached");
+        if (!this.ready) await this.refreshHeaders({ force: true });
+        if (!this.ready) {
+          const err = new Error(
+            "Portal hunting session not ready (missing XSRF / hunting page)"
+          );
+          err.status = 401;
+          throw err;
+        }
+        if (Date.now() - this.headersAt > 4 * 60 * 1e3) {
+          await this.refreshHeaders({ force: true });
+          if (!this.ready) {
+            const err = new Error(
+              "Portal hunting XSRF refresh failed (session stale)"
+            );
+            err.status = 401;
+            throw err;
+          }
+        }
+        let payload = await this._portalFetch(q);
+        const authFail = payload.status === 401 || payload.status === 403 || payload.status === 500;
+        if (authFail) {
+          this.invalidateHeaders(`HTTP ${payload.status} on apiproxy`);
+          await this.ensureHuntingSurface();
+          await this.refreshHeaders({ force: true });
+          if (!this.ready) {
+            const err = new Error(
+              `HTTP ${payload.status} portal:${PORTAL_QUERY_PATH} (XSRF refresh failed)
+${String(payload.text || "").slice(0, 300)}`
+            );
+            err.status = payload.status;
+            throw err;
+          }
+          payload = await this._portalFetch(q);
+          if (payload.status < 200 || payload.status >= 300) {
+            this.invalidateHeaders(`retry still HTTP ${payload.status}`);
+            const err = new Error(
+              `HTTP ${payload.status} portal:${PORTAL_QUERY_PATH}
+${String(payload.text || "").slice(0, 400)}`
+            );
+            err.status = payload.status;
+            throw err;
+          }
+        } else if (payload.status < 200 || payload.status >= 300) {
+          const err = new Error(
+            `HTTP ${payload.status} portal:${PORTAL_QUERY_PATH}
+${String(payload.text || "").slice(0, 400)}`
+          );
+          err.status = payload.status;
+          throw err;
+        }
+        let json = null;
+        try {
+          json = payload.text ? JSON.parse(payload.text) : null;
+        } catch {
+          json = null;
+        }
+        const norm = normalizeHuntResponse(json);
+        norm.backend = "portal:apiproxy/hunting";
+        return norm;
+      }
+      async fetchSchemaTables() {
+        if (!this.ready) await this.refreshHeaders({ force: true });
+        if (!this.ready || !this.page) return null;
+        const payload = await this.page.evaluate(
+          async ({ path, headers }) => {
+            const res = await fetch(path, {
+              method: "GET",
+              credentials: "include",
+              headers
+            });
+            const text = await res.text();
+            return { status: res.status, text };
+          },
+          { path: PORTAL_SCHEMA_PATH, headers: this.headers }
+        );
+        if (payload.status !== 200) return null;
+        try {
+          const json = JSON.parse(payload.text);
+          const tables = Array.isArray(json.Tables) ? json.Tables : [];
+          const names = tables.map((t) => t.Name || t.name || t.TableName).filter(Boolean).map(String);
+          return { names, raw: json };
+        } catch {
+          return null;
+        }
+      }
+    };
+    var portalSession = new PortalHuntSession();
+    async function attachPortalHunt(page) {
+      const ok = await portalSession.attach(page);
+      if (ok) {
+        console.log(
+          "  \u2713 Portal Advanced Hunting session ready (apiproxy + XSRF)"
+        );
+      } else {
+        console.warn(
+          "  \u26A0 Portal hunting attach incomplete \u2014 will still try Graph/MTP tokens"
+        );
+      }
+      return ok;
+    }
+    function portalHuntReady() {
+      return portalSession.ready;
+    }
+    async function runHuntingQuery(pool2, query, opts = {}) {
+      const q = String(query || "").trim();
+      if (!q) throw new Error("Empty hunting query");
+      const timespan = opts.timespan || null;
+      const errors = [];
+      async function tryPortal(label) {
+        if (!(portalSession.page || portalSession.ready)) return null;
+        try {
+          if (!portalSession.ready) {
+            await portalSession.refreshHeaders({ force: true });
+          }
+          if (!portalSession.ready) {
+            errors.push(`portal:${label} not-ready (no XSRF)`);
+            return null;
+          }
+          return await portalSession.runQuery(q);
+        } catch (e) {
+          const msg = String(e.message || e).split("\n")[0];
+          errors.push(`portal:${label}:${e.status || "?"} ${msg}`);
+          console.warn(`  \u26A0 Hunting portal ${label} failed: ${msg}`);
+          if (e.status === 400) throw e;
+          return null;
+        }
+      }
+      let portalHit = await tryPortal("attempt1");
+      if (portalHit) return portalHit;
+      if (portalSession.page) {
+        portalSession.invalidateHeaders("retry before Graph fallback");
+        try {
+          await portalSession.ensureHuntingSurface();
+          await portalSession.refreshHeaders({ force: true });
+        } catch (e) {
+          errors.push(
+            `portal:refresh:${String(e.message || e).split("\n")[0]}`
+          );
+        }
+        portalHit = await tryPortal("attempt2-after-xsrf-refresh");
+        if (portalHit) return portalHit;
+      }
+      const graphTokens = pool2 && pool2.list && pool2.list() || [];
+      const graphPrefer = [
+        ...graphTokens.filter((e) => hasThreatHuntingScope(e.payload)),
+        ...graphTokens
+      ];
+      const seenG = /* @__PURE__ */ new Set();
+      for (const entry of graphPrefer) {
+        if (seenG.has(entry.token)) continue;
+        seenG.add(entry.token);
+        try {
+          const body = timespan ? { Query: q, Timespan: timespan } : { Query: q };
+          const data = await fetchJson(
+            entry.token,
+            "https://graph.microsoft.com/v1.0/security/runHuntingQuery",
+            body
+          );
+          const norm = normalizeHuntResponse(data);
+          norm.backend = "graph";
+          return norm;
+        } catch (e) {
+          errors.push(
+            `graph:${e.status || "?"} ${String(e.message || e).split("\n")[0]}`
+          );
+          if (e.status && e.status !== 401 && e.status !== 403) throw e;
+        }
+      }
+      const mtpTokens = pool2 && pool2.listMtp && pool2.listMtp() || (pool2 && pool2.listAll && pool2.listAll() || []).filter(
+        (e) => isMtpAudience(e.aud)
+      );
+      for (const entry of mtpTokens) {
+        const base = mtpBaseFromAud(entry.aud);
+        for (const path of MTP_HUNT_PATHS) {
+          try {
+            const data = await fetchJson(entry.token, `${base}${path}`, {
+              Query: q
+            });
+            const norm = normalizeHuntResponse(data);
+            norm.backend = `mtp:${base}${path}`;
+            return norm;
+          } catch (e) {
+            errors.push(
+              `mtp:${path}:${e.status || "?"} ${String(e.message || e).split("\n")[0]}`
+            );
+            if (e.status && e.status !== 401 && e.status !== 403 && e.status !== 404) {
+              if (e.status !== 404) throw e;
+            }
+          }
+        }
+      }
+      const portalErrs = errors.filter((e) => e.startsWith("portal:"));
+      const otherErrs = errors.filter((e) => !e.startsWith("portal:"));
+      const summaryBits = [
+        ...portalErrs.slice(0, 3),
+        ...otherErrs.slice(-2)
+      ].filter(Boolean);
+      const err = new Error(
+        `Hunting failed (portal apiproxy + Graph + MTP). Portal=${portalSession.ready ? "ready" : "not-ready"}; Graph tokens=${seenG.size}; MTP tokens=${mtpTokens.length}. Attempts: ${summaryBits.join(" | ") || "no attempts"}`
+      );
+      err.status = 403;
+      err.details = errors;
+      throw err;
+    }
+    module.exports = {
+      runHuntingQuery,
+      normalizeHuntResponse,
+      isMtpAudience,
+      hasThreatHuntingScope,
+      mtpBaseFromAud,
+      attachPortalHunt,
+      portalHuntReady,
+      portalSession,
+      PORTAL_QUERY_PATH,
+      PORTAL_SCHEMA_PATH
+    };
+  }
+});
+
+// lib/cache-null.js
+var require_cache_null = __commonJS({
+  "lib/cache-null.js"(exports, module) {
+    function nullCache() {
+      return {
+        get: () => void 0,
+        set: () => {
+        },
+        invalidate: () => {
+        },
+        read: false,
+        write: false,
+        stats: { hits: 0, misses: 0, writes: 0 },
+        summarize: () => ({ enabled: false, hits: 0, misses: 0, writes: 0 })
+      };
+    }
+    module.exports = { nullCache };
+  }
+});
+
+// lib/graph.js
+var require_graph = __commonJS({
+  "lib/graph.js"(exports, module) {
+    var GRAPH = "https://graph.microsoft.com/v1.0";
+    var GRAPH_BETA = "https://graph.microsoft.com/beta";
+    var { runHuntingQuery } = require_hunt();
+    var { fetchJsonResilient } = require_net();
+    var { nullCache } = require_cache_null();
+    var GRAPH_TIMEOUT_MS = 9e4;
+    function shortUrl(url) {
+      return String(url).replace(/^https:\/\/graph\.microsoft\.com/, "").slice(0, 80);
+    }
+    async function fetchOnce(token, url, { method = "GET", body = null } = {}) {
+      const headers = {
+        Authorization: `Bearer ${token}`,
+        ConsistencyLevel: "eventual",
+        "Accept-Language": "en-US"
+      };
+      if (body) headers["Content-Type"] = "application/json";
+      return fetchJsonResilient(url, {
+        method,
+        headers,
+        body: body ? JSON.stringify(body) : void 0,
+        timeoutMs: GRAPH_TIMEOUT_MS,
+        onRetry: (attempt, reason, waitMs) => {
+          console.warn(
+            `  \u21BB graph retry ${attempt} in ${Math.round(waitMs / 1e3)}s (${String(reason).slice(0, 80)}) ${shortUrl(url)}`
+          );
+        }
+      });
+    }
+    async function graphFetch(token, url, { all = false, maxPages = 200 } = {}) {
+      if (!all) return fetchOnce(token, url);
+      const items = [];
+      let next = url;
+      let pages = 0;
+      while (next) {
+        pages++;
+        if (pages > maxPages) {
+          console.warn(
+            `  \u26A0 pagination capped at ${maxPages} pages (${items.length} items) for ${url.split("?")[0]}`
+          );
+          items.truncated = true;
+          items.truncatedAtPages = maxPages;
+          return items;
+        }
+        const data = await fetchOnce(token, next);
+        if (data && Array.isArray(data.value)) items.push(...data.value);
+        else return data;
+        next = data && data["@odata.nextLink"] || null;
+      }
+      return items;
+    }
+    function isAuthError(e) {
+      return e && (e.status === 401 || e.status === 403);
+    }
+    function createGraph2(pool2, opts = {}) {
+      const cache = opts.cache || nullCache();
+      async function attempt(url, opts2, exec) {
+        const tokens = pool2.list();
+        if (!tokens.length) return { exhausted: true, lastErr: null };
+        let lastErr = null;
+        let sawExpiredAuth = false;
+        for (const entry of tokens) {
+          try {
+            return { value: await exec(entry.token, url, opts2) };
+          } catch (e) {
+            lastErr = e;
+            if (!isAuthError(e)) throw e;
+            if (e.status === 401) sawExpiredAuth = true;
+          }
+        }
+        return { exhausted: sawExpiredAuth, lastErr };
+      }
+      async function withPool(url, opts2 = {}, exec = graphFetch) {
+        let r = await attempt(url, opts2, exec);
+        if ("value" in r) return r.value;
+        if (r.exhausted && await pool2.refresh()) {
+          r = await attempt(url, opts2, exec);
+          if ("value" in r) return r.value;
+        }
+        throw r.lastErr || new Error("No Graph tokens in pool");
+      }
+      async function cached(kind, cacheKey, run) {
+        const hit = cache.get(kind, cacheKey);
+        if (hit !== void 0) return hit;
+        const value = await run();
+        cache.set(kind, cacheKey, value);
+        return value;
+      }
+      async function hunt(query, huntOpts = {}) {
+        const key = `${huntOpts.timespan || ""}|${query}`;
+        return cached("hunt", key, () => runHuntingQuery(pool2, query, huntOpts));
+      }
+      return {
+        GRAPH,
+        GRAPH_BETA,
+        pool: pool2,
+        cache,
+        get: (url) => cached("get", url, () => withPool(url, { all: false })),
+        getAll: (url, maxPages) => cached(
+          "getAll",
+          url,
+          () => withPool(url, { all: true, maxPages: maxPages || 200 })
+        ),
+        post: async (url, body) => {
+          if (/\/security\/runHuntingQuery/i.test(String(url || ""))) {
+            const result = await hunt(body && body.Query, {
+              timespan: body && body.Timespan
+            });
+            return {
+              results: result.results || [],
+              schema: result.schema,
+              stats: result.stats,
+              _backend: result.backend
+            };
+          }
+          return cached(
+            `post:${url}`,
+            JSON.stringify(body || {}),
+            () => withPool(url, {}, (token, u) => fetchOnce(token, u, { method: "POST", body }))
+          );
+        },
+        runHuntingQuery: hunt
+      };
+    }
+    module.exports = { createGraph: createGraph2, GRAPH, GRAPH_BETA };
+  }
+});
+
+// lib/resolve.js
+var require_resolve = __commonJS({
+  "lib/resolve.js"(exports, module) {
+    var WELL_KNOWN = {
+      All: "All",
+      None: "None",
+      GuestsOrExternalUsers: "Guests or external users",
+      AllTrusted: "All trusted locations",
+      AllCompliantDevices: "All compliant devices",
+      Office365: "Office 365",
+      MicrosoftAdminPortals: "Microsoft Admin Portals",
+      "00000003-0000-0ff1-ce00-000000000000": "Office 365 SharePoint Online"
+    };
+    var GUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    function createResolver2(graph, roleDefMap = {}) {
+      const cache = /* @__PURE__ */ new Map();
+      const principalRecords = /* @__PURE__ */ new Map();
+      function rememberPrincipal(id, record) {
+        if (!id || !record) return;
+        const key = String(id);
+        const prev = principalRecords.get(key) || {};
+        principalRecords.set(key, { ...prev, ...record, id: key });
+      }
+      async function resolveOne(id) {
+        if (id === null || id === void 0 || id === "") return "";
+        const key = String(id);
+        if (WELL_KNOWN[key]) return WELL_KNOWN[key];
+        if (roleDefMap[key]) {
+          rememberPrincipal(key, {
+            type: "role",
+            displayName: roleDefMap[key]
+          });
+          return roleDefMap[key];
+        }
+        if (cache.has(key)) return cache.get(key);
+        let label = key;
+        try {
+          const obj = await graph.get(`${graph.GRAPH}/directoryObjects/${key}`);
+          const type = (obj["@odata.type"] || "").split(".").pop();
+          if (type === "user") {
+            label = `${obj.displayName || "?"} <${obj.userPrincipalName || obj.mail || key}>`;
+            rememberPrincipal(key, {
+              type: "user",
+              displayName: obj.displayName || "",
+              userPrincipalName: obj.userPrincipalName || obj.mail || "",
+              userType: obj.userType || "",
+              accountEnabled: obj.accountEnabled
+            });
+          } else if (type === "group") {
+            label = `Group: ${obj.displayName || key}`;
+            rememberPrincipal(key, {
+              type: "group",
+              displayName: obj.displayName || "",
+              securityEnabled: obj.securityEnabled,
+              isAssignableToRole: obj.isAssignableToRole
+            });
+          } else if (type === "servicePrincipal") {
+            label = `App: ${obj.displayName || key}${obj.appId ? ` (${obj.appId})` : ""}`;
+            rememberPrincipal(key, {
+              type: "application",
+              displayName: obj.displayName || "",
+              appId: obj.appId || "",
+              servicePrincipalId: obj.id || key
+            });
+            if (obj.appId) {
+              rememberPrincipal(obj.appId, {
+                type: "application",
+                displayName: obj.displayName || "",
+                appId: obj.appId,
+                servicePrincipalId: obj.id || key
+              });
+            }
+          } else {
+            label = `${obj.displayName || key} [${type}]`;
+            rememberPrincipal(key, {
+              type: type || "directoryObject",
+              displayName: obj.displayName || ""
+            });
+          }
+        } catch {
+          try {
+            const sps = await graph.getAll(
+              `${graph.GRAPH}/servicePrincipals?$filter=appId eq '${key}'&$select=displayName,appId,id`
+            );
+            if (sps && sps[0]) {
+              label = `App: ${sps[0].displayName} (${key})`;
+              rememberPrincipal(key, {
+                type: "application",
+                displayName: sps[0].displayName || "",
+                appId: sps[0].appId || key,
+                servicePrincipalId: sps[0].id || ""
+              });
+            }
+          } catch {
+          }
+        }
+        cache.set(key, label);
+        return label;
+      }
+      async function resolveMany(ids) {
+        if (!ids || !ids.length) return "";
+        const parts = [];
+        for (const id of ids) {
+          parts.push(await resolveOne(id));
+        }
+        return parts.join(" | ");
+      }
+      function setRoleMap(map) {
+        Object.assign(roleDefMap, map);
+        for (const [id, name3] of Object.entries(map)) {
+          rememberPrincipal(id, { type: "role", displayName: name3 });
+        }
+      }
+      function setLocationMap(map) {
+        for (const [id, name3] of Object.entries(map)) {
+          cache.set(id, `Location: ${name3}`);
+          WELL_KNOWN[id] = `Location: ${name3}`;
+          rememberPrincipal(id, { type: "location", displayName: name3 });
+        }
+      }
+      function getResolutions() {
+        const out = {};
+        for (const [id, label] of cache.entries()) {
+          out[id] = label;
+        }
+        for (const [id, label] of Object.entries(WELL_KNOWN)) {
+          if (!out[id]) out[id] = label;
+        }
+        for (const [id, label] of Object.entries(roleDefMap)) {
+          if (!out[id]) out[id] = label;
+        }
+        return out;
+      }
+      async function resolveList(ids) {
+        if (!ids || !ids.length) return [];
+        const out = [];
+        for (const id of ids) out.push(await resolveOne(id));
+        return out;
+      }
+      function getPrincipalRecords() {
+        return Object.fromEntries(principalRecords.entries());
+      }
+      return {
+        resolveOne,
+        resolveMany,
+        resolveList,
+        setRoleMap,
+        setLocationMap,
+        getResolutions,
+        getPrincipalRecords,
+        cache,
+        principalRecords,
+        isGuid: (id) => GUID_RE.test(String(id || ""))
+      };
+    }
+    module.exports = { createResolver: createResolver2, WELL_KNOWN, GUID_RE };
+  }
+});
+
 // web/src/main.js
 var import_tokens = __toESM(require_tokens());
 var import_scopes = __toESM(require_scopes());
+
+// web/src/collect-ca.js
+var import_graph = __toESM(require_graph());
+var import_resolve = __toESM(require_resolve());
+async function collectConditionalAccess(pool2, { onProgress } = {}) {
+  const graph = (0, import_graph.createGraph)(pool2);
+  const progress = onProgress || (() => {
+  });
+  progress("Role definitions\u2026");
+  const roleDefs = await graph.getAll(`${graph.GRAPH}/roleManagement/directory/roleDefinitions`);
+  const roleDefMap = {};
+  for (const d of roleDefs || []) roleDefMap[d.id] = d.displayName;
+  const resolver = (0, import_resolve.createResolver)(graph, roleDefMap);
+  progress("Named locations\u2026");
+  const namedLocs = await graph.getAll(
+    `${graph.GRAPH}/identity/conditionalAccess/namedLocations`
+  );
+  const locMap = {};
+  for (const l of namedLocs || []) locMap[l.id] = l.displayName;
+  resolver.setLocationMap(locMap);
+  progress("Conditional Access policies (resolving object names\u2026)");
+  const policies = await graph.getAll(`${graph.GRAPH}/identity/conditionalAccess/policies`);
+  const rows = [];
+  for (const p of policies || []) {
+    const u = p.conditions && p.conditions.users || {};
+    const a = p.conditions && p.conditions.applications || {};
+    const loc = p.conditions && p.conditions.locations || {};
+    const grant = p.grantControls && p.grantControls.builtInControls || [];
+    const clients = p.conditions && p.conditions.clientAppTypes || [];
+    const authFlows = p.conditions && p.conditions.authenticationFlows && p.conditions.authenticationFlows.transferMethods;
+    const isEnforced = p.state === "enabled";
+    const isReportOnly = p.state === "enabledForReportingButNotEnforced";
+    const riskFlags = [];
+    if (isReportOnly) riskFlags.push("NOT ENFORCED (report-only)");
+    if (p.grantControls && p.grantControls.operator === "OR" && grant.includes("compliantDevice") && grant.includes("mfa")) {
+      riskFlags.push("OR grant: MFA alone can bypass compliant device");
+    }
+    rows.push({
+      PolicyName: p.displayName,
+      State: p.state,
+      IsEnforced: isEnforced ? "Yes" : isReportOnly ? "Report-only" : "Disabled",
+      GrantControls: grant.join(", "),
+      GrantOperator: p.grantControls && p.grantControls.operator || "",
+      IncludeUsers: (await resolver.resolveList(u.includeUsers || [])).join(" | "),
+      ExcludeUsers: (await resolver.resolveList(u.excludeUsers || [])).join(" | "),
+      IncludeGroups: (await resolver.resolveList(u.includeGroups || [])).join(" | "),
+      ExcludeGroups: (await resolver.resolveList(u.excludeGroups || [])).join(" | "),
+      IncludeRoles: (await resolver.resolveList(u.includeRoles || [])).join(" | "),
+      ExcludeRoles: (await resolver.resolveList(u.excludeRoles || [])).join(" | "),
+      IncludeApps: (await resolver.resolveList(a.includeApplications || [])).join(" | "),
+      ExcludeApps: (await resolver.resolveList(a.excludeApplications || [])).join(" | "),
+      IncludeLocations: (await resolver.resolveList(loc.includeLocations || [])).join(" | "),
+      ExcludeLocations: (await resolver.resolveList(loc.excludeLocations || [])).join(" | "),
+      ClientAppTypes: clients.join(", "),
+      AuthFlows: authFlows || "",
+      SignInRisk: (p.conditions && p.conditions.signInRiskLevels || []).join(", "),
+      UserRisk: (p.conditions && p.conditions.userRiskLevels || []).join(", "),
+      RiskFlags: riskFlags.join(" | ")
+    });
+  }
+  return {
+    rows,
+    total: rows.length,
+    enforced: rows.filter((r) => r.IsEnforced === "Yes").length,
+    reportOnly: rows.filter((r) => r.IsEnforced === "Report-only").length,
+    namedLocationsCount: (namedLocs || []).length
+  };
+}
+
+// web/src/table.js
+function escapeHtml(s) {
+  return String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+function renderTable(container, headers, rows) {
+  if (!rows || !rows.length) {
+    container.innerHTML = '<p class="muted">No data.</p>';
+    return;
+  }
+  container.innerHTML = '<div style="overflow:auto"><table><thead><tr>' + headers.map((h) => "<th>" + escapeHtml(h) + "</th>").join("") + "</tr></thead><tbody>" + rows.map(
+    (r) => "<tr>" + headers.map((h) => "<td>" + escapeHtml(r[h]) + "</td>").join("") + "</tr>"
+  ).join("") + "</tbody></table></div>";
+}
 
 // node_modules/@azure/msal-common/dist-browser/constants/AADServerParamKeys.mjs
 var AADServerParamKeys_exports = {};
@@ -15361,6 +16351,7 @@ function buildAdminConsentUrl({ tenantId = "organizations" } = {}) {
 
 // web/src/main.js
 var el = (id) => document.getElementById(id);
+var pool = null;
 function setStatus(msg, tone = "muted") {
   const s = el("status");
   s.textContent = msg;
@@ -15376,14 +16367,11 @@ function renderIdentity(payload, account) {
   el("identity").innerHTML = "<div><strong>" + escapeHtml(upn) + '</strong></div><div class="muted">tenant ' + escapeHtml(payload.tid || "?") + "</div>";
   el("identity").hidden = false;
 }
-function escapeHtml(s) {
-  return String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-}
 function renderPermissionMatrix(payload) {
   const { rows, missing } = (0, import_scopes.evaluatePermissions)(payload, { hasPortalSession: false });
   const icon = { ok: "\u2713", portal: "\u25D0", missing: "\u2717" };
   const toneClass = { ok: "ok", portal: "warn", missing: "bad" };
-  el("matrix").innerHTML = "<table><thead><tr><th></th><th>Area</th><th>Detail</th></tr></thead><tbody>" + rows.map(
+  el("matrixTable").innerHTML = "<table><thead><tr><th></th><th>Area</th><th>Detail</th></tr></thead><tbody>" + rows.map(
     (r) => '<tr><td class="icon ' + toneClass[r.status] + '">' + icon[r.status] + "</td><td>" + escapeHtml(r.area) + '</td><td class="muted">' + (r.status === "ok" ? escapeHtml(r.matched.join(", ")) : "needs one of: " + escapeHtml(r.needed.join(" | "))) + "</td></tr>"
   ).join("") + "</tbody></table>";
   el("matrix").hidden = false;
@@ -15393,6 +16381,33 @@ function renderPermissionMatrix(payload) {
     el("consentBox").hidden = false;
   } else {
     el("consentBox").hidden = true;
+  }
+  const caRow = rows.find((r) => r.area === "Conditional Access");
+  el("btnCollectCa").hidden = caRow.status !== "ok";
+}
+async function handleCollectCa() {
+  const btn = el("btnCollectCa");
+  btn.disabled = true;
+  const prevLabel = btn.textContent;
+  el("caResult").hidden = false;
+  el("caResult").innerHTML = '<p class="muted">Fetching Conditional Access policies\u2026</p>';
+  try {
+    const result = await collectConditionalAccess(pool, {
+      onProgress: (msg) => {
+        el("caResult").innerHTML = '<p class="muted">' + escapeHtml(msg) + "</p>";
+      }
+    });
+    el("caResult").innerHTML = '<h3 style="margin-top:0">Conditional Access \u2014 ' + result.total + " polic" + (result.total === 1 ? "y" : "ies") + '</h3><p class="muted">' + result.enforced + " enforced \xB7 " + result.reportOnly + " report-only \xB7 " + result.namedLocationsCount + ' named location(s)</p><div id="caTable"></div>';
+    renderTable(
+      el("caTable"),
+      ["PolicyName", "IsEnforced", "GrantControls", "ClientAppTypes", "RiskFlags"],
+      result.rows
+    );
+  } catch (e) {
+    el("caResult").innerHTML = '<p class="status bad">Collection failed: ' + escapeHtml(e && e.message ? e.message : String(e)) + "</p>";
+  } finally {
+    btn.disabled = false;
+    btn.textContent = prevLabel;
   }
 }
 async function handleSignedIn(account) {
@@ -15405,6 +16420,12 @@ async function handleSignedIn(account) {
     setStatus("Signed in, but the returned token could not be decoded.", "bad");
     return;
   }
+  pool = new import_tokens.TokenPool();
+  pool.add(result.accessToken, { source: "msal-browser" });
+  pool.onRefresh(async () => {
+    const again = await acquireTokenSilent(account);
+    return again.accessToken;
+  }, "msal-browser");
   renderIdentity(payload, account);
   renderPermissionMatrix(payload);
   setStatus("Signed in.", "ok");
@@ -15425,6 +16446,7 @@ async function main() {
     if (account) await logout(account);
     location.reload();
   });
+  el("btnCollectCa").addEventListener("click", handleCollectCa);
   const existing = await getExistingAccount().catch(() => null);
   if (existing) {
     try {
