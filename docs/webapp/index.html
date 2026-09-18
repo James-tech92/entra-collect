@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Entra Collect — Web</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Sora:wght@600;700&display=swap" rel="stylesheet" />
+<style>
+:root {
+  --bg: #0b1220; --surface: #151f30; --surface-2: #1a2436; --border: #243044;
+  --text: #e8eef7; --muted: #8b9bb4; --accent: #2dd4bf; --accent-dim: rgba(45,212,191,.14);
+  --danger: #f87171; --warn: #fbbf24; --ok: #4ade80;
+  --font: "IBM Plex Sans", system-ui, sans-serif; --display: "Sora", system-ui, sans-serif;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; min-height: 100vh; font-family: var(--font); color: var(--text);
+  background:
+    radial-gradient(1200px 600px at 10% -10%, rgba(45,212,191,.12), transparent 55%),
+    radial-gradient(900px 500px at 90% 0%, rgba(56,189,248,.08), transparent 50%),
+    var(--bg);
+}
+.wrap { max-width: 720px; margin: 0 auto; padding: 3rem 1.25rem 4rem; }
+h1 { font-family: var(--display); font-size: 1.5rem; margin: 0 0 .25rem; }
+.tagline { color: var(--muted); margin: 0 0 2rem; font-size: .95rem; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 1.5rem; margin-bottom: 1.25rem; }
+.btn {
+  display: inline-block; background: var(--accent); color: #04211d; border: none; border-radius: 8px;
+  padding: .6rem 1.1rem; font-weight: 600; font-size: .9rem; cursor: pointer; text-decoration: none;
+}
+.btn:disabled { opacity: .5; cursor: not-allowed; }
+.btn.secondary { background: transparent; color: var(--text); border: 1px solid var(--border); }
+.status { font-size: .85rem; margin-top: .75rem; }
+.status.ok { color: var(--ok); }
+.status.bad { color: var(--danger); }
+.status.muted { color: var(--muted); }
+table { width: 100%; border-collapse: collapse; font-size: .85rem; margin-top: .5rem; }
+th, td { text-align: left; padding: .5rem .6rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+th { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .05em; }
+td.icon { width: 1.5rem; font-weight: 700; }
+td.icon.ok { color: var(--ok); }
+td.icon.warn { color: var(--warn); }
+td.icon.bad { color: var(--danger); }
+.muted { color: var(--muted); }
+.warning { background: rgba(248,113,113,.1); border: 1px solid rgba(248,113,113,.35); border-radius: 10px; padding: 1rem; margin-bottom: 1.25rem; font-size: .9rem; }
+.warning code { background: rgba(0,0,0,.25); padding: .1rem .35rem; border-radius: 4px; }
+footer { color: var(--muted); font-size: .8rem; margin-top: 2rem; }
+footer a { color: var(--accent); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Entra Collect — Web</h1>
+  <p class="tagline">Sign in and check Graph permission coverage for this tenant — the browser equivalent of <code>collect.js --check-permissions</code>. Read-only; nothing is collected yet in this phase.</p>
+
+  <div id="configWarning" class="warning" hidden>
+    No app registration configured. Edit <code>web/src/config.js</code> with your own
+    Application (client) ID and rebuild — see
+    <a href="../WEBAPP.md">docs/WEBAPP.md</a> for the five-minute setup.
+  </div>
+
+  <div class="card">
+    <button id="btnLogin" class="btn">Sign in</button>
+    <button id="btnLogout" class="btn secondary" hidden>Sign out</button>
+    <div id="status" class="status muted"></div>
+  </div>
+
+  <div id="identity" class="card" hidden></div>
+
+  <div id="matrix" class="card" hidden></div>
+
+  <div id="consentBox" class="card" hidden></div>
+
+  <footer>
+    Read-only Entra ID / Microsoft 365 assessment tool — authorized engagements only.
+    <a href="../WEBAPP.md">Setup &amp; docs</a> ·
+    <a href="https://github.com/aojald/entra-collect">GitHub</a>
+  </footer>
+</div>
+<script type="module" src="./app.bundle.js"></script>
+</body>
+</html>

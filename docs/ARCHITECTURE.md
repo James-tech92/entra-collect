@@ -37,6 +37,8 @@
 | `lib/collection.js` | Main collection pipeline + `00_SUMMARY.*` + auto-report |
 | `lib/msal-auth.js` | MSAL Node auth — Azure CLI's own public client, no app registration |
 | `lib/profile.js` | Shared profile/cache directory resolution (browser profiles, MSAL cache) |
+| `lib/scopes.js` | `REQUIRED_SCOPES` + `evaluatePermissions` — pure logic, shared by the CLI (`lib/auth-cli.js` re-exports it) and `web/` |
+| `web/` → `docs/webapp/` | Hosted browser-only app (sign-in + permission check). See [WEBAPP.md](WEBAPP.md) |
 | `lib/hunt.js` | Advanced Hunting: **portal apiproxy → Graph → legacy MTP** |
 | `lib/analyze.js` | Static correlation → `NARR.*` + posture score |
 | `lib/attackpath.js` | Consent / CA coverage / priv hygiene → `40_*` |

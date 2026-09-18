@@ -36,6 +36,7 @@
     "login-edge.sh",
     "login-edge.cmd",
     "lib/",
+    "web/",
     "docs/",
     "test/",
     "README.md",
@@ -52,12 +53,14 @@
     "setup:browser": "playwright install chromium",
     "test": "node --test \"test/*.test.js\"",
     "test:stable": "node --experimental-test-isolation=none --test \"test/*.test.js\"",
-    "test:render": "node test/render-check.js"
+    "test:render": "node test/render-check.js",
+    "build:web": "esbuild web/src/main.js --bundle --outfile=docs/webapp/app.bundle.js --platform=browser --target=es2020 --format=esm --sourcemap"
   },
   "engines": {
     "node": ">=18"
   },
   "dependencies": {
+    "@azure/msal-browser": "^5.22.0",
     "@azure/msal-node": "^6.0.1",
     "axe-core": "^4.13.0",
     "exceljs": "^4.4.0",
@@ -67,5 +70,8 @@
   "overrides": {
     "brace-expansion": "5.0.8",
     "uuid": "^11.1.1"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2"
   }
 }

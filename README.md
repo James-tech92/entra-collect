@@ -175,6 +175,7 @@ node report.js output_YYYY-MM-DD_HHMM
 | **[docs/GUIDE.md](docs/GUIDE.md)** | Full English guide (platforms, collect, analyzer, report) |
 | [docs/USAGE.md](docs/USAGE.md) | CLI flags & troubleshooting |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Modules, CDP, hunting apiproxy |
+| [docs/WEBAPP.md](docs/WEBAPP.md) | Hosted browser-only app — setup & app registration |
 | [docs/WINDOWS.md](docs/WINDOWS.md) | Windows-specific setup |
 | [docs/OUTPUTS.md](docs/OUTPUTS.md) | Artifact catalog |
 | [docs/CHECKS.md](docs/CHECKS.md) | Attack-path checklist IDs |
