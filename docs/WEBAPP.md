@@ -44,21 +44,31 @@ implementation.
 
 ## Setup — scripted (recommended)
 
-`scripts/register-web-app.js` does steps 1-3 below for you: creates the app
-registration (multitenant, SPA platform, your redirect URI), requests every
-scope in [`lib/scopes.js`](../lib/scopes.js)'s `REQUIRED_SCOPES` (resolved
-by name against the tenant's own Graph metadata — never hardcoded GUIDs),
-and writes the resulting client id into `web/src/config.js`.
+`scripts/register-web-app.js` does the whole thing end to end:
 
-Requires the [az CLI](https://learn.microsoft.com/cli/azure/install-azure-cli),
-logged in (`az login`) as **Application Administrator**, **Cloud Application
-Administrator**, or **Global Administrator** on the tenant that will own
-this app registration — that's a one-time-setup requirement, distinct from
-the Global Reader / Security Reader the app is used with afterwards.
+1. **Logs you in** — runs `az login` itself if you're not already logged
+   in (interactive: the browser / device-code prompt shows in the same
+   terminal).
+2. **Creates the app registration** — multitenant, SPA platform, your
+   redirect URI, requesting every scope in
+   [`lib/scopes.js`](../lib/scopes.js)'s `REQUIRED_SCOPES` — resolved by
+   name against the tenant's own Graph metadata, never hardcoded GUIDs.
+3. **Grants admin consent** — `az ad app permission admin-consent`, with a
+   few retries (a freshly created app can take up to  1 minute to
+   replicate through Azure AD before consent will take). The app is usable
+   immediately after this succeeds — no separate "click consent" step.
+4. **Writes the client id** into `web/src/config.js`.
+
+Requires the [az CLI](https://learn.microsoft.com/cli/azure/install-azure-cli)
+and an account that can create app registrations and consent to the scopes
+above on the tenant that will own this registration — **Application
+Administrator**, **Cloud Application Administrator**, or **Global
+Administrator**. That's a one-time-setup requirement, distinct from the
+Global Reader / Security Reader the app is used with afterwards, on
+whichever tenant it gets pointed at later.
 
 ```bash
 npm install
-az login
 node scripts/register-web-app.js http://127.0.0.1:8080/
 npm run build:web
 ```
@@ -69,11 +79,15 @@ while testing, re-run against the real hosted URL before going live
 (re-running creates a **new** app registration each time; delete the old
 one or reuse its client id with a second redirect URI added manually).
 
+If consent doesn't succeed automatically (rare — usually means the signed-in
+account isn't actually an admin, or a tenant policy blocks it), the script
+prints a fallback browser link to grant it manually.
+
 Not run against a live tenant during development here — the scope
 resolution and request-body logic are covered by
 [`test/register-web-app.test.js`](../test/register-web-app.test.js), but
-the actual Azure AD calls are untested. Report back if something doesn't
-match this doc.
+the actual `az login` / Graph / consent calls are untested. Report back if
+something doesn't match this doc.
 
 ## Setup — manual (five minutes, if you'd rather not run a script that creates Azure resources)
 

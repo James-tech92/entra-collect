@@ -1,16 +1,17 @@
 #!/usr/bin/env node
 /**
  * Automates the Azure AD app registration the hosted web app needs
- * (docs/WEBAPP.md's manual "five-minute setup", scripted). Creates a
- * multi-tenant, public-client SPA-platform app registration with the
- * delegated Graph scopes from lib/scopes.js, and writes the resulting
- * client id into web/src/config.js.
+ * (docs/WEBAPP.md's manual "five-minute setup", scripted end to end):
+ * logs you into the az CLI if needed, creates a multi-tenant, public-client
+ * SPA-platform app registration with the delegated Graph scopes from
+ * lib/scopes.js, writes the resulting client id into web/src/config.js,
+ * and attempts admin consent so the app is usable immediately.
  *
- * Requires the az CLI, logged in (`az login`) as someone who can create
- * app registrations and consent to the scopes below — Application
- * Administrator, Cloud Application Administrator, or Global Administrator.
- * Global Reader / Security Reader (what the app itself is used with
- * afterwards) is NOT enough for this one-time setup step.
+ * Every step needs someone who can create app registrations and consent to
+ * the scopes below — Application Administrator, Cloud Application
+ * Administrator, or Global Administrator. Global Reader / Security Reader
+ * (what the app itself is used with afterwards, on whatever tenant it gets
+ * pointed at later) is NOT enough for this one-time setup step.
  *
  * Permission IDs are resolved by name from the tenant's own Microsoft
  * Graph service principal rather than hardcoded — Graph permission GUIDs
@@ -65,6 +66,69 @@ function argValue(args, flag, fallback) {
   return i >= 0 && args[i + 1] ? args[i + 1] : fallback;
 }
 
+function isLoggedIn() {
+  try {
+    az(["account", "show", "-o", "none"]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Runs `az login` interactively (stdio inherited: the browser/device-code
+ * prompt shows in this same terminal) when no session exists yet, instead
+ * of stopping and telling the operator to run it separately first.
+ */
+function ensureLoggedIn() {
+  if (isLoggedIn()) {
+    console.log("✓ Already logged in to Azure CLI.");
+    return;
+  }
+  console.log("Not logged in to Azure CLI — running az login…\n");
+  try {
+    execFileSync("az", ["login"], { stdio: "inherit", shell: isWin });
+  } catch (e) {
+    console.error(`\n❌ az login failed or was cancelled (${String(e.message || e).slice(0, 200)}).\n`);
+    process.exit(1);
+  }
+  if (!isLoggedIn()) {
+    console.error("\n❌ Still not logged in after az login — aborting.\n");
+    process.exit(1);
+  }
+  console.log("✓ Logged in.");
+}
+
+/** Synchronous sleep — the rest of this script is execFileSync-based, not
+ * worth converting to async/await for one retry loop. */
+function sleepSync(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+/**
+ * Consent right after creation can 404/fail for up to ~a minute while the
+ * new app object replicates through Azure AD — retried instead of treated
+ * as a hard failure on the first try.
+ */
+function tryAdminConsent(appId, { retries = 4, delayMs = 15000 } = {}) {
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      az(["ad", "app", "permission", "admin-consent", "--id", appId]);
+      return true;
+    } catch (e) {
+      if (attempt === retries) {
+        console.warn(`  ⚠ admin consent did not succeed (${String(e.message || e).slice(0, 200)}).`);
+        return false;
+      }
+      console.log(
+        `  · not ready yet (attempt ${attempt}/${retries}) — likely Azure AD replication lag, retrying in ${delayMs / 1000}s…`
+      );
+      sleepSync(delayMs);
+    }
+  }
+  return false;
+}
+
 /**
  * Resolves REQUIRED_SCOPES' scope names to Graph delegated-permission IDs
  * against the tenant's own servicePrincipal metadata — never hardcoded, so
@@ -98,24 +162,16 @@ function main() {
   const redirectUri = args.find((a) => !a.startsWith("--") && args[args.indexOf(a) - 1] !== "--name");
   const appName = argValue(args, "--name", "Entra Collect Web");
 
-  if (!redirectUri || args.includes("--help") || args.includes("-h")) {
+  const wantsHelp = args.includes("--help") || args.includes("-h");
+  if (!redirectUri || wantsHelp) {
     console.log(
       "Usage: node scripts/register-web-app.js <redirect-uri> [--name \"...\"]\n" +
         "Example: node scripts/register-web-app.js http://127.0.0.1:8080/"
     );
-    process.exit(redirectUri ? 0 : 1);
+    process.exit(wantsHelp ? 0 : 1);
   }
 
-  console.log("Checking az CLI session…");
-  try {
-    az(["account", "show", "-o", "none"]);
-  } catch {
-    console.error(
-      "\n❌ Not logged in to Azure CLI.\n" +
-        "   Run: az login   (as Application Administrator / Cloud Application Administrator / Global Administrator)\n"
-    );
-    process.exit(1);
-  }
+  ensureLoggedIn();
 
   console.log("Resolving Microsoft Graph delegated permission IDs…");
   const uniqueScopeNames = [...new Set(REQUIRED_SCOPES.flatMap((r) => r.any))];
@@ -187,17 +243,22 @@ function main() {
     console.warn(`\n  ⚠ could not update web/src/config.js (${String(e.message || e).slice(0, 160)}) — set CLIENT_ID manually.`);
   }
 
+  console.log("\nGranting admin consent for the requested scopes on this tenant…");
+  const consented = tryAdminConsent(app.appId);
   const consentUrl = `https://login.microsoftonline.com/organizations/adminconsent?client_id=${app.appId}&redirect_uri=${encodeURIComponent(redirectUri)}`;
-  console.log(
-    "\nPermissions were requested on the app but not yet consented on this tenant.\n" +
-      "If you're signing in as an admin, consent happens automatically on first\n" +
-      "login. Otherwise, consent once now — either:\n\n" +
-      `  az ad app permission admin-consent --id ${app.appId}\n` +
-      "  (may need a minute to work right after creation — Azure AD replication lag)\n\n" +
-      "or open this in a browser as a Global/Application Administrator:\n" +
-      `  ${consentUrl}\n\n` +
-      "Then: npm run build:web"
-  );
+
+  if (consented) {
+    console.log("  ✓ Consent granted — the app is usable immediately, by any Reader-level account on this tenant.");
+  } else {
+    console.log(
+      "  Consent was not granted automatically. Either wait a minute for Azure AD\n" +
+        `  replication and re-run \`az ad app permission admin-consent --id ${app.appId}\`,\n` +
+        "  or open this in a browser as a Global/Application Administrator:\n" +
+        `  ${consentUrl}`
+    );
+  }
+
+  console.log("\nNext: npm run build:web");
 }
 
 if (require.main === module) {
